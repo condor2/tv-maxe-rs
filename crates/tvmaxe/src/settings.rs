@@ -58,6 +58,9 @@ impl Settings {
                     .setting::<String>("pref.video_quality")
                     .and_then(|s| VideoQuality::parse(&s))
                     .unwrap_or(p.video_quality),
+                audio_languages: db
+                    .setting::<String>("pref.audio_languages")
+                    .unwrap_or_default(),
             },
             refresh_on_start: db
                 .setting("pref.refresh_on_start")
@@ -92,6 +95,7 @@ impl Settings {
         db.set_setting("pref.network_timeout", p.network_timeout_secs)?;
         db.set_setting("pref.user_agent", p.user_agent.as_deref().unwrap_or(""))?;
         db.set_setting("pref.video_quality", p.video_quality.as_str())?;
+        db.set_setting("pref.audio_languages", &p.audio_languages)?;
         db.set_setting("pref.refresh_on_start", self.refresh_on_start)?;
         db.set_setting("pref.download_logos", self.download_logos)?;
         db.set_setting("pref.autoplay_last", self.autoplay_last)?;
@@ -144,6 +148,7 @@ mod tests {
                 network_timeout_secs: 40,
                 user_agent: Some("VLC/3.0.21 LibVLC/3.0.21".into()),
                 video_quality: VideoQuality::Fast,
+                audio_languages: "ro,en".into(),
             },
             refresh_on_start: false,
             download_logos: false,

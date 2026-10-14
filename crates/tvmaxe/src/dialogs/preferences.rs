@@ -71,6 +71,18 @@ pub fn preferences(main: &Rc<MainWindow>) {
         u(&|s| s.playback.user_agent = (!t.is_empty()).then(|| t.clone()))
     });
 
+    let alang = gtk::Entry::builder()
+        .text(&s.playback.audio_languages)
+        .placeholder_text(tr("e.g. ro, en"))
+        .width_chars(14)
+        .valign(gtk::Align::Center)
+        .build();
+    let u = update.clone();
+    alang.connect_changed(move |w| {
+        let t = w.text().trim().to_string();
+        u(&|s| s.playback.audio_languages = t.clone())
+    });
+
     // --- Lists and startup ---
     let refresh = gtk::Switch::builder()
         .active(s.refresh_on_start)
@@ -162,6 +174,13 @@ pub fn preferences(main: &Rc<MainWindow>) {
                     "Switching back from “Fast” takes effect after a restart.",
                 )),
                 quality.upcast_ref(),
+            ),
+            (
+                tr("Preferred audio languages"),
+                Some(tr(
+                    "Language codes in order of preference, for channels with several audio tracks.",
+                )),
+                alang.upcast_ref(),
             ),
             (
                 "User-Agent",
@@ -285,6 +304,7 @@ pub fn preferences(main: &Rc<MainWindow>) {
         timeout.set_value(f64::from(d.playback.network_timeout_secs));
         quality.set_selected(0);
         ua.set_text("");
+        alang.set_text("");
         epg_view.buffer().set_text("");
         refresh.set_active(d.refresh_on_start);
         logos.set_active(d.download_logos);

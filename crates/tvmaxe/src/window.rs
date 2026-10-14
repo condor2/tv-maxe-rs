@@ -19,6 +19,7 @@ mod epg;
 mod recordings;
 mod sleep;
 mod sources;
+mod zapping;
 
 pub use sleep::sleep_action_available;
 
@@ -111,6 +112,16 @@ pub struct MainWindow {
     quit_confirmed: Cell<bool>,
     sleep: RefCell<Option<sleep::SleepTimer>>,
     sleep_indicator: gtk::Label,
+    fav_btn: gtk::Button,
+    audio_btn: gtk::MenuButton,
+    /// On-screen display over the video (channel number and name, audio track…).
+    osd: gtk::Label,
+    osd_timer: RefCell<Option<glib::SourceId>>,
+    /// The channel watched before the current one: (kind, first URL).
+    previous: RefCell<Option<(Kind, String)>>,
+    /// Digits typed for a channel number.
+    typed_number: RefCell<String>,
+    digit_timer: RefCell<Option<glib::SourceId>>,
     logo_queue: RefCell<Vec<String>>,
     logo_seen: RefCell<std::collections::HashSet<String>>,
     logo_inflight: Cell<usize>,
@@ -184,6 +195,17 @@ impl MainWindow {
         video.add_css_class("video-area");
         video.set_child(Some(&player.widget()));
         video.add_overlay(&placeholder);
+        let osd = gtk::Label::builder()
+            .halign(gtk::Align::Start)
+            .valign(gtk::Align::Start)
+            .margin_start(16)
+            .margin_top(16)
+            .visible(false)
+            .can_target(false)
+            .build();
+        osd.add_css_class("osd");
+        osd.add_css_class("zap-osd");
+        video.add_overlay(&osd);
         video.set_vexpand(true);
 
         // Information about the current channel.
@@ -253,6 +275,14 @@ impl MainWindow {
         time_label.add_css_class("numeric");
         let record_btn = icon_button("media-record-symbolic", tr("Record (Ctrl+Shift+R)"));
         record_btn.set_action_name(Some("win.record"));
+        let fav_btn = icon_button("non-starred-symbolic", tr("Add to favourites (Ctrl+D)"));
+        fav_btn.set_action_name(Some("win.favourite-current"));
+        let audio_btn = gtk::MenuButton::builder()
+            .icon_name("audio-x-generic-symbolic")
+            .tooltip_text(tr("Audio track (A)"))
+            .visible(false)
+            .build();
+        audio_btn.add_css_class("flat");
         let full_btn = icon_button("view-fullscreen-symbolic", tr("Fullscreen (F11)"));
         full_btn.set_action_name(Some("win.fullscreen"));
         let volume = gtk::ScaleButton::new(
@@ -278,8 +308,10 @@ impl MainWindow {
             play_btn.upcast_ref::<gtk::Widget>(),
             stop_btn.upcast_ref(),
             record_btn.upcast_ref(),
+            fav_btn.upcast_ref(),
             time_label.upcast_ref(),
             spacer.upcast_ref(),
+            audio_btn.upcast_ref(),
             full_btn.upcast_ref(),
             volume.upcast_ref(),
         ] {
@@ -420,6 +452,13 @@ impl MainWindow {
             quit_confirmed: Cell::new(false),
             sleep: RefCell::default(),
             sleep_indicator,
+            fav_btn,
+            audio_btn,
+            osd,
+            osd_timer: RefCell::default(),
+            previous: RefCell::default(),
+            typed_number: RefCell::default(),
+            digit_timer: RefCell::default(),
             logo_queue: RefCell::default(),
             logo_seen: RefCell::default(),
             logo_inflight: Cell::new(0),
@@ -519,13 +558,17 @@ impl MainWindow {
         // focused widget (which is hidden in fullscreen).
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
-        let win = self.window.downgrade();
-        keys.connect_key_pressed(move |_, key, _, _| {
-            if let Some(win) = win.upgrade()
-                && key == gdk::Key::Escape
-                && win.is_fullscreen()
-            {
-                win.unfullscreen();
+        let w = Rc::downgrade(self);
+        keys.connect_key_pressed(move |_, key, _, state| {
+            let Some(w) = w.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            if key == gdk::Key::Escape && w.window.is_fullscreen() {
+                w.window.unfullscreen();
+                return glib::Propagation::Stop;
+            }
+            // Zapping: Page Up/Down, digits, Backspace, A (audio track).
+            if w.zap_key(key, state) {
                 return glib::Propagation::Stop;
             }
             glib::Propagation::Proceed
@@ -608,6 +651,50 @@ impl MainWindow {
         add("recordings", dialogs::RecordingsDialog::present);
         add("record", |w| w.record_now());
         add("sleep-timer", dialogs::sleep_timer);
+        add("favourite-current", |w| w.toggle_current_favourite());
+        add("zap-next", |w| w.zap(1));
+        add("zap-prev", |w| w.zap(-1));
+        add("zap-back", |w| w.zap_back());
+        add("cycle-audio", |w| w.cycle_audio_track());
+        add("show-favourites", |w| {
+            if !w.current_list().show_favourites() {
+                w.set_status(tr(
+                    "No favourites yet: right-click a channel → Add to favourites",
+                ));
+            }
+        });
+
+        let fav = gio::SimpleAction::new("toggle-favourite", Some(glib::VariantTy::INT64));
+        let w = Rc::downgrade(self);
+        fav.connect_activate(move |_, p| {
+            if let (Some(w), Some(id)) = (w.upgrade(), p.and_then(|p| p.get::<i64>()))
+                && let Some(obj) = w.item_by_id(id)
+            {
+                w.toggle_favourite(&row_of(obj.upcast_ref()));
+            }
+        });
+        self.window.add_action(&fav);
+
+        // Radio items of the audio menu: the state is the selected track id.
+        let audio = gio::SimpleAction::new_stateful(
+            "audio-track",
+            Some(glib::VariantTy::INT64),
+            &0i64.to_variant(),
+        );
+        let w = Rc::downgrade(self);
+        audio.connect_activate(move |a, p| {
+            if let (Some(w), Some(id)) = (w.upgrade(), p.and_then(|p| p.get::<i64>())) {
+                w.player.set_audio_track(id);
+                a.set_state(&id.to_variant());
+            }
+        });
+        self.window.add_action(&audio);
+        let w = Rc::downgrade(self);
+        self.audio_btn.set_create_popup_func(move |b| {
+            if let Some(w) = w.upgrade() {
+                b.set_menu_model(Some(&w.audio_menu()));
+            }
+        });
 
         let delete = gio::SimpleAction::new("delete-channel", Some(glib::VariantTy::INT64));
         let w = Rc::downgrade(self);
@@ -742,6 +829,14 @@ impl MainWindow {
     /// Plays a channel from source (URL) `source`.
     fn play_row_from(&self, row: &ChannelRow, source: usize) {
         let ch = &row.channel;
+        // Remember the channel left behind, for Backspace.
+        if let Some(c) = self.current.borrow().as_ref()
+            && c.channel_id >= 0
+            && c.urls.first() != ch.urls.first()
+            && let Some(url) = c.urls.first()
+        {
+            *self.previous.borrow_mut() = Some((c.kind, url.clone()));
+        }
         let detail = match &ch.group {
             Some(g) => format!("{g} · {}", row.subscription),
             None => row.subscription.clone(),
@@ -805,6 +900,7 @@ impl MainWindow {
         match &ev {
             PlayerEvent::Connecting => self.set_status(&fill(tr("Connecting to %1…"), &[&name])),
             PlayerEvent::Playing => {
+                self.update_audio_button();
                 self.progress.set_visible(false);
                 self.set_status(&fill(tr("Playing: %1"), &[&name]));
             }
@@ -829,6 +925,7 @@ impl MainWindow {
 
     /// The info panel, the Play button and the picture in the video area.
     fn update_now_playing(&self) {
+        self.update_favourite_button();
         let cur = self.current.borrow();
         let active = self.player.is_active();
         let paused = active && self.player.is_paused();
@@ -883,6 +980,58 @@ impl MainWindow {
                 }
             }
         }
+    }
+
+    // ---------- Audio tracks ----------
+
+    /// Shows the audio track button only when there is a choice.
+    fn update_audio_button(&self) {
+        let tracks = self.player.audio_tracks();
+        self.audio_btn.set_visible(tracks.len() > 1);
+        if let Some(t) = tracks.iter().find(|t| t.selected) {
+            self.audio_btn
+                .set_tooltip_text(Some(&fill(tr("Audio track: %1 (A)"), &[&t.label()])));
+            if let Some(a) = self
+                .window
+                .lookup_action("audio-track")
+                .and_downcast::<gio::SimpleAction>()
+            {
+                a.set_state(&t.id.to_variant());
+            }
+        }
+    }
+
+    fn audio_menu(&self) -> gio::Menu {
+        self.update_audio_button();
+        let menu = gio::Menu::new();
+        for t in self.player.audio_tracks() {
+            let item = gio::MenuItem::new(Some(&t.label().replace('_', "__")), None);
+            item.set_action_and_target_value(Some("win.audio-track"), Some(&t.id.to_variant()));
+            menu.append_item(&item);
+        }
+        menu
+    }
+
+    /// A key: the next audio track, with the choice shown over the video.
+    pub fn cycle_audio_track(&self) {
+        let tracks = self.player.audio_tracks();
+        if tracks.len() < 2 {
+            self.show_osd(tr("No other audio track"));
+            return;
+        }
+        let cur = tracks.iter().position(|t| t.selected).unwrap_or(0);
+        let next = &tracks[(cur + 1) % tracks.len()];
+        self.player.set_audio_track(next.id);
+        self.show_osd(&fill(tr("Audio: %1"), &[&next.label()]));
+        if let Some(a) = self
+            .window
+            .lookup_action("audio-track")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            a.set_state(&next.id.to_variant());
+        }
+        self.audio_btn
+            .set_tooltip_text(Some(&fill(tr("Audio track: %1 (A)"), &[&next.label()])));
     }
 
     // ---------- Recordings ----------
@@ -963,6 +1112,19 @@ impl MainWindow {
             }
             menu.append_section(Some(tr("Source")), &sources);
         }
+
+        let fav = gio::Menu::new();
+        let item = gio::MenuItem::new(
+            Some(if row.favourite.get() {
+                tr("Remove from favourites")
+            } else {
+                tr("Add to favourites")
+            }),
+            None,
+        );
+        item.set_action_and_target_value(Some("win.toggle-favourite"), Some(&ch.id.to_variant()));
+        fav.append_item(&item);
+        menu.append_section(None, &fav);
 
         let record = gio::Menu::new();
         for (label, action) in [
@@ -1088,6 +1250,10 @@ impl MainWindow {
     pub fn channel_id_at(&self, kind: Kind, index: u32) -> Option<i64> {
         let obj = self.list(kind).item(index)?;
         Some(row_of(obj.upcast_ref()).channel.id)
+    }
+
+    pub fn visible_channel_count(&self, kind: Kind) -> u32 {
+        self.list(kind).visible_len()
     }
 
     pub fn status_text(&self) -> String {

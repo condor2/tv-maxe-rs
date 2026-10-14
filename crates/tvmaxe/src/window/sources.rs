@@ -35,6 +35,11 @@ impl MainWindow {
                 .collect();
             list.set_channels(rows);
         }
+        drop(idx);
+        drop(db);
+        self.apply_favourites();
+        let db = self.db.borrow();
+        let idx = self.epg_index.borrow();
         let active = subs
             .iter()
             .filter(|s| s.enabled && s.tv_count + s.radio_count > 0)

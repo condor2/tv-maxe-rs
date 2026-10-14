@@ -28,6 +28,8 @@ lists, but it is a complete rewrite and contains no code from the original proje
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Favourites and zapping](#favourites-and-zapping)
+- [Audio tracks](#audio-tracks)
 - [Recording](#recording)
 - [Sleep timer](#sleep-timer)
 - [Supported list formats](#supported-list-formats)
@@ -56,6 +58,11 @@ lists, but it is a complete rewrite and contains no code from the original proje
   require them
 - **Smooth playback on slow machines**: switches to mpv's fast scaling on software OpenGL or when too
   many frames are dropped
+- **Favourites**: star the channels you watch most and show only them with one click
+- **Keyboard zapping**: Page Up / Page Down, channel numbers typed on the keyboard, Backspace for the
+  last channel watched, with the channel shown over the video
+- **Audio track selection** for channels with several languages, with preferred languages that
+  are picked automatically
 - **Recording and scheduler**: record the channel you are watching with one click, or schedule
   recordings (once, daily or weekly) from the TV guide, the channel menu or the Recordings window
 - **Sleep timer**: stops playback, quits, suspends or shuts down the computer after a while or at
@@ -123,6 +130,7 @@ Right-click a channel for more:
 | Menu item | What it does |
 |---|---|
 | Play | Plays the channel from its first source |
+| Add to / Remove from favourites | Stars the channel (★) or removes the star |
 | Source → 1, 2, 3… | Plays a specific URL (shown for channels with several sources). If it fails, the next ones are tried, then the earlier ones; ▶ marks the source that is playing |
 | Record now | Starts recording the channel (until you stop it) |
 | Schedule recording… | Opens the schedule form for the channel |
@@ -142,6 +150,11 @@ overwrite them; add your own version to *My channels* instead.
 | Ctrl+N | Add a channel |
 | Ctrl+, | Preferences |
 | Ctrl+G | TV guide |
+| Page Down / Page Up | Next / previous channel |
+| 0–9 | Channel number (1 = first channel in the list) |
+| Backspace | Last channel watched |
+| A | Next audio track |
+| Ctrl+D | Add the current channel to the favourites / remove it |
 | Ctrl+Shift+R | Record the current channel / stop recording it |
 | Ctrl+J | Recordings |
 | Ctrl+T | Sleep timer |
@@ -153,9 +166,41 @@ overwrite them; add your own version to *My channels* instead.
 ### Preferences
 
 **TV-Maxe → Preferences…** has hardware decoding, network buffer, connection timeout, video
-quality (*Automatic*, *Best quality*, *Fast*), the User-Agent for lists and streams, extra EPG
+quality (*Automatic*, *Best quality*, *Fast*), preferred audio languages, the User-Agent for lists
+and streams, extra EPG
 sources, the recordings folder, updating the lists at startup, logo downloads and playing the
 last channel on startup. Changes apply immediately.
+
+## Favourites and zapping
+
+- Click **☆** under the video (Ctrl+D), or right-click a channel → **Add to favourites**. Favourite
+  channels get a ★ in the list.
+- Choose **★ Favourites** in the *Channel list* picker (or **View → Show favourites**) to see only
+  them. The entry appears once you have at least one favourite, separately for TV and radio.
+- Favourites are kept by channel URL, so they survive list updates and work across subscriptions.
+
+Zapping works on the list **as it is shown** in the current tab: search, group filter and
+favourites included, so with *★ Favourites* selected Page Up / Page Down go only through your
+favourites.
+
+| Key | What it does |
+|---|---|
+| Page Down / Page Up | Next / previous channel, wrapping around at the end of the list |
+| 0–9 | Type a channel number; it switches after a short pause (*12* = the twelfth channel shown) |
+| Backspace | Back to the channel you watched before |
+
+The channel number and name appear over the video for a few seconds. The keys are ignored while
+you type in the search field.
+
+## Audio tracks
+
+When a channel has more than one audio track, an **audio track** button (♪) appears under the video,
+next to fullscreen. It lists the tracks with their language, codec and channels (*English (AAC,
+5.1)*); press **A** to go to the next one.
+
+To have your language chosen automatically, set **Preferences → Preferred audio languages** to a
+list in order of preference, for example `ro, en`. Two- and three-letter codes both work (`ro`,
+`ron`, `rum`).
 
 ## Recording
 
@@ -279,8 +324,8 @@ tests are skipped (in CI they are mandatory).
 
 | Test | What it checks |
 |---|---|
-| [`player.rs`](crates/tvmaxe/tests/player.rs) | mpv under a non-C locale; playback **and rendering** in GtkGLArea (a capture of the video area must show the colour bars); fallback URLs; failure when every URL fails; Referer / User-Agent headers; pause and stop |
-| [`ui.rs`](crates/tvmaxe/tests/ui.rs) | Main window and menu; a subscription from a local M3U; playback with a fallback URL; choosing a source; editing a channel in *My channels*; the ● button, a scheduled recording, a missed daily one; the schedule form; the sleep timer (and that it never ends a recording); every dialog opened and closed three times; F9; closing the window during playback |
+| [`player.rs`](crates/tvmaxe/tests/player.rs) | mpv under a non-C locale; playback **and rendering** in GtkGLArea (a capture of the video area must show the colour bars); fallback URLs; failure when every URL fails; switching away from a dead URL (its late error must not fail the new channel); Referer / User-Agent headers; pause and stop; radio; choosing an audio track by preferred language and by hand |
+| [`ui.rs`](crates/tvmaxe/tests/ui.rs) | Main window and menu; a subscription from a local M3U; playback with a fallback URL; choosing a source; editing a channel in *My channels*; the ● button, a scheduled recording, a missed daily one; the schedule form; the sleep timer (and that it never ends a recording); favourites, zapping by key, by number and back; every dialog opened and closed three times; F9; closing the window during playback |
 | [`recorder.rs`](crates/tvmaxe/tests/recorder.rs) | The recording engine: a usable MPEG-TS file, fallback URLs, failure when every URL fails, reconnecting into a new part (no display needed) |
 | [`translations.rs`](crates/tvmaxe/tests/translations.rs) | Every `tr("…")` has a Romanian translation, and the catalog has no unused entries |
 
@@ -349,7 +394,7 @@ rest of the application stays the same.
 
 - [x] Recording and scheduler
 - [x] Sleep timer
-- [ ] Favourites, keyboard zapping, audio track selection
+- [x] Favourites, keyboard zapping, audio track selection
 - [ ] AUR and Flatpak packages
 - [ ] More interface languages
 

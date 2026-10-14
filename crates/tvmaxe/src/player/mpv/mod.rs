@@ -4,11 +4,13 @@
 mod gl;
 pub mod recorder;
 
-use super::{Backend, BackendEvent, BackendHandler, PlaybackSettings, StreamOptions, VideoQuality};
+use super::{
+    AudioTrack, Backend, BackendEvent, BackendHandler, PlaybackSettings, StreamOptions,
+    VideoQuality,
+};
 use gtk::glib;
 use gtk::prelude::*;
 use libmpv2::Mpv;
-use libmpv2::events::Event;
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -24,6 +26,11 @@ pub struct MpvBackend {
     handler: RefCell<Option<BackendHandler>>,
     /// A URL is loaded (for buffering and frame statistics).
     loaded: Cell<bool>,
+    /// mpv playlist entry id of the URL loaded last. START_FILE / END_FILE
+    /// events of other entries belong to a channel that was already replaced
+    /// (e.g. a dead URL passed while zapping) and must not fail the new one.
+    /// `None`: unknown (old mpv), every event counts.
+    entry: Cell<Option<i64>>,
     buffering: Cell<Option<i64>>,
     /// mpv's "fast" profile (bilinear scaling) is active.
     fast: Rc<Cell<bool>>,
@@ -52,6 +59,9 @@ impl MpvBackend {
             init.set_property("demuxer-max-back-bytes", "32MiB")?;
             init.set_property("network-timeout", 15i64)?;
             init.set_property("keep-open", "no")?;
+            // Without a working audio device, play silently instead of dropping
+            // the audio (radio would fail and the audio tracks would vanish).
+            init.set_property("audio-fallback-to-null", "yes")?;
             init.set_property("user-agent", concat!("TV-Maxe/", env!("CARGO_PKG_VERSION")))?;
             // Depanare: TVMAXE_MPV_LOG=/tmp/mpv.log tvmaxe
             if let Ok(path) = std::env::var("TVMAXE_MPV_LOG") {
@@ -169,6 +179,7 @@ impl MpvBackend {
             mpv,
             handler: RefCell::default(),
             loaded: Cell::new(false),
+            entry: Cell::new(None),
             buffering: Cell::new(None),
             fast,
             quality,
@@ -192,23 +203,14 @@ impl MpvBackend {
             let Some(b) = weak.upgrade() else {
                 return glib::ControlFlow::Break;
             };
-            while let Some(ev) = b.mpv.wait_event(0.0) {
-                let out = match ev {
-                    // Errors from EndFile arrive here as Err.
-                    Err(e) => Some(BackendEvent::Failed(describe_error(&e))),
-                    Ok(Event::StartFile) => Some(BackendEvent::Connecting),
-                    Ok(Event::PlaybackRestart) => Some(BackendEvent::Playing),
-                    // 0 = end of file: the live stream closed.
-                    Ok(Event::EndFile(0)) => Some(BackendEvent::Ended),
-                    Ok(Event::Shutdown) => return glib::ControlFlow::Break,
-                    Ok(_) => None,
+            while let Some(out) = b.next_event() {
+                let Some(out) = out else {
+                    return glib::ControlFlow::Break;
                 };
-                if let Some(out) = out {
-                    if matches!(out, BackendEvent::Failed(_) | BackendEvent::Ended) {
-                        b.loaded.set(false);
-                    }
-                    b.emit(out);
+                if matches!(out, BackendEvent::Failed(_) | BackendEvent::Ended) {
+                    b.loaded.set(false);
                 }
+                b.emit(out);
             }
             if b.loaded.get() {
                 b.check_frame_drops();
@@ -216,6 +218,50 @@ impl MpvBackend {
             }
             glib::ControlFlow::Continue
         });
+    }
+
+    /// The next mpv event that matters, without blocking: `None` when the
+    /// queue is empty, `Some(None)` on shutdown. Read through the raw API
+    /// because libmpv2 drops the playlist entry id.
+    fn next_event(&self) -> Option<Option<BackendEvent>> {
+        use libmpv2::events::mpv_event_id as id;
+        loop {
+            // SAFETY: the handle lives as long as the application; the event
+            // and its data stay valid until the next mpv_wait_event call,
+            // and they are only read before this function returns.
+            let ev = unsafe { &*libmpv2_sys::mpv_wait_event(self.mpv.ctx.as_ptr(), 0.0) };
+            let current = |entry: i64| self.entry.get().is_none_or(|e| e == entry);
+            let out = match ev.event_id {
+                id::None => return None,
+                id::Shutdown => return Some(None),
+                id::StartFile => {
+                    // SAFETY: START_FILE carries an mpv_event_start_file.
+                    let data = unsafe { &*(ev.data as *const libmpv2_sys::mpv_event_start_file) };
+                    current(data.playlist_entry_id).then_some(BackendEvent::Connecting)
+                }
+                id::EndFile => {
+                    // SAFETY: END_FILE carries an mpv_event_end_file.
+                    let data = unsafe { &*(ev.data as *const libmpv2_sys::mpv_event_end_file) };
+                    if !current(data.playlist_entry_id) {
+                        None
+                    } else if data.error < 0 {
+                        Some(BackendEvent::Failed(describe_code(data.error)))
+                    } else if data.reason
+                        == libmpv2_sys::mpv_end_file_reason_MPV_END_FILE_REASON_EOF
+                    {
+                        // The live stream closed.
+                        Some(BackendEvent::Ended)
+                    } else {
+                        None
+                    }
+                }
+                id::PlaybackRestart => Some(BackendEvent::Playing),
+                _ => None,
+            };
+            if let Some(out) = out {
+                return Some(Some(out));
+            }
+        }
     }
 
     fn check_buffering(&self) {
@@ -281,11 +327,21 @@ impl Backend for MpvBackend {
         let _ = self.mpv.set_property("pause", false);
         self.mpv
             .command("loadfile", &[url, "replace"])
-            .map_err(|e| fill(tr("Cannot start the stream: %1"), &[&e]))
+            .map_err(|e| fill(tr("Cannot start the stream: %1"), &[&e]))?;
+        // "replace" leaves the new URL as the last playlist entry.
+        let last = self.mpv.get_property::<i64>("playlist-count").unwrap_or(0) - 1;
+        self.entry.set(
+            self.mpv
+                .get_property::<i64>(&format!("playlist/{last}/id"))
+                .ok(),
+        );
+        Ok(())
     }
 
     fn stop(&self) {
         self.loaded.set(false);
+        // Events of the stopped file no longer matter.
+        self.entry.set(Some(-1));
         let _ = self.mpv.command("stop", &[]);
     }
 
@@ -318,6 +374,8 @@ impl Backend for MpvBackend {
             .as_deref()
             .unwrap_or(tvmaxe_core::net::DEFAULT_USER_AGENT);
         let _ = m.set_property("user-agent", ua);
+        // Preferred audio languages, also as 2- and 3-letter codes ("ro" → "ro,ron,rum").
+        let _ = m.set_property("alang", expand_languages(&s.audio_languages).as_str());
         *self.user_agent.borrow_mut() = ua.to_string();
         self.quality.set(s.video_quality);
         // Switching to "fast" works at any time; switching back only on restart
@@ -330,6 +388,37 @@ impl Backend for MpvBackend {
     fn position(&self) -> Option<f64> {
         self.mpv.get_property::<f64>("playback-time").ok()
     }
+
+    fn audio_tracks(&self) -> Vec<AudioTrack> {
+        let m = self.mpv;
+        let n = m.get_property::<i64>("track-list/count").unwrap_or(0);
+        let s = |i: i64, key: &str| {
+            m.get_property::<String>(&format!("track-list/{i}/{key}"))
+                .ok()
+                .filter(|v| !v.is_empty())
+        };
+        (0..n)
+            .filter(|&i| s(i, "type").as_deref() == Some("audio"))
+            .filter_map(|i| {
+                Some(AudioTrack {
+                    id: m.get_property::<i64>(&format!("track-list/{i}/id")).ok()?,
+                    lang: s(i, "lang"),
+                    title: s(i, "title"),
+                    codec: s(i, "codec"),
+                    channels: m
+                        .get_property::<i64>(&format!("track-list/{i}/demux-channel-count"))
+                        .ok(),
+                    selected: m
+                        .get_property::<bool>(&format!("track-list/{i}/selected"))
+                        .unwrap_or(false),
+                })
+            })
+            .collect()
+    }
+
+    fn set_audio_track(&self, id: i64) {
+        let _ = self.mpv.set_property("aid", id);
+    }
 }
 
 fn apply_fast_profile(mpv: &Mpv, fast: &Cell<bool>, why: &str) {
@@ -337,6 +426,43 @@ fn apply_fast_profile(mpv: &Mpv, fast: &Cell<bool>, why: &str) {
         eprintln!("TV-Maxe: fast video profile ({why})");
         let _ = mpv.command("apply-profile", &["fast"]);
     }
+}
+
+/// "ro, en" → "ro,ron,rum,en,eng": streams use 2- or 3-letter ISO 639 codes.
+fn expand_languages(list: &str) -> String {
+    const CODES: &[&[&str]] = &[
+        &["ro", "ron", "rum", "mol"],
+        &["en", "eng"],
+        &["hu", "hun"],
+        &["de", "deu", "ger"],
+        &["fr", "fra", "fre"],
+        &["es", "spa"],
+        &["it", "ita"],
+        &["ru", "rus"],
+        &["uk", "ukr"],
+        &["bg", "bul"],
+        &["sr", "srp"],
+        &["tr", "tur"],
+        &["pl", "pol"],
+        &["el", "ell", "gre"],
+        &["pt", "por"],
+        &["nl", "nld", "dut"],
+    ];
+    let mut out: Vec<String> = Vec::new();
+    for lang in list
+        .split([',', ' ', ';'])
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+    {
+        let lang = lang.to_ascii_lowercase();
+        let group = CODES.iter().find(|g| g.contains(&lang.as_str()));
+        for code in group.map_or(vec![lang.as_str()], |g| g.to_vec()) {
+            if !out.iter().any(|c| c == code) {
+                out.push(code.to_string());
+            }
+        }
+    }
+    out.join(",")
 }
 
 /// Per-channel HTTP headers, set before every URL; a channel without special
@@ -358,14 +484,28 @@ fn apply_http(mpv: &Mpv, http: &StreamOptions, default_ua: &str) {
 /// `mpv_error` codes (mpv/client.h) → readable messages.
 fn describe_error(e: &libmpv2::Error) -> String {
     match e {
-        libmpv2::Error::Raw(code) => match *code {
-            -13 => tr("The channel cannot be loaded (offline or wrong URL)").into(),
-            -14 => tr("Cannot initialise audio output").into(),
-            -15 => tr("Cannot initialise video output").into(),
-            -16 => tr("Unknown stream format").into(),
-            -17 => tr("Stream without playable audio or video").into(),
-            other => fill(tr("Playback failed (mpv code %1)"), &[&other]),
-        },
+        libmpv2::Error::Raw(code) => describe_code(*code),
         other => fill(tr("Playback failed: %1"), &[other]),
+    }
+}
+
+fn describe_code(code: i32) -> String {
+    match code {
+        -13 => tr("The channel cannot be loaded (offline or wrong URL)").into(),
+        -14 => tr("Cannot initialise audio output").into(),
+        -15 => tr("Cannot initialise video output").into(),
+        -16 => tr("Unknown stream format").into(),
+        -17 => tr("Stream without playable audio or video").into(),
+        other => fill(tr("Playback failed (mpv code %1)"), &[&other]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn audio_language_codes() {
+        assert_eq!(super::expand_languages(" RO, en "), "ro,ron,rum,mol,en,eng");
+        assert_eq!(super::expand_languages("xx"), "xx");
+        assert_eq!(super::expand_languages(""), "");
     }
 }

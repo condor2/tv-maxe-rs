@@ -42,6 +42,9 @@ fn main() {
             ("recording", || Box::pin(recording())),
             ("schedule_form", || Box::pin(schedule_form())),
             ("sleep_timer", || Box::pin(sleep_timer())),
+            ("favourites_and_zapping", || {
+                Box::pin(favourites_and_zapping())
+            }),
             // Last: closes the main window.
             ("close_while_playing", || Box::pin(close_while_playing())),
         ],
@@ -654,5 +657,128 @@ async fn sleep_timer() -> TestResult {
         "status: {:?}",
         f.main.status_text()
     );
+    Ok(())
+}
+
+/// Favourites (★ list) and zapping: next / previous with wrap-around,
+/// channel numbers, back to the last channel, and the OSD.
+async fn favourites_and_zapping() -> TestResult {
+    let f = fixture()?;
+    let mut ids = Vec::new();
+    for (i, name) in ["Zap A", "Zap B", "Zap C"].iter().enumerate() {
+        // Distinct first URLs (channels are identified by them).
+        let url = TEST_VIDEO.replace("duration=600", &format!("duration={}", 600 + i));
+        let id = f
+            .main
+            .db
+            .borrow()
+            .add_local_channel(Kind::Tv, name, &url)
+            .map_err(|e| e.to_string())?;
+        ids.push(id);
+    }
+    f.main.reload();
+    let total = f.main.visible_channel_count(Kind::Tv);
+    check!(total >= 4, "visible TV channels: {total}");
+
+    let playing = |name: &str| f.main.status_text() == format!("Playing: {name}");
+    // Find Zap A's position among the shown channels by zapping to its number.
+    let mut pos_a = None;
+    for n in 1..=total {
+        f.main.zap_to_number(n);
+        if f.main.osd_text().is_some_and(|t| t.ends_with("Zap A")) {
+            pos_a = Some(n);
+            break;
+        }
+    }
+    let pos_a = pos_a.ok_or("Zap A not found by number")?;
+    wait_until("Zap A playing", TIMEOUT, || playing("Zap A"))
+        .await
+        .map_err(|e| {
+            format!(
+                "{e}; status {:?}, OSD {:?}",
+                f.main.status_text(),
+                f.main.osd_text()
+            )
+        })?;
+    check!(
+        f.main.osd_text() == Some(format!("{pos_a}  Zap A")),
+        "OSD: {:?}",
+        f.main.osd_text()
+    );
+
+    f.main.zap(1);
+    wait_until("Zap B after next", TIMEOUT, || playing("Zap B")).await?;
+    f.main.zap(-1);
+    wait_until("Zap A after previous", TIMEOUT, || playing("Zap A")).await?;
+    f.main.zap_back();
+    wait_until("Zap B after back", TIMEOUT, || playing("Zap B")).await?;
+    f.main.zap_to_number(total + 5);
+    check!(
+        f.main.osd_text() == Some(format!("No channel {}", total + 5)),
+        "OSD: {:?}",
+        f.main.osd_text()
+    );
+
+    // Favourites: two channels, then the ★ view shows only them.
+    for id in &ids[..2] {
+        WidgetExt::activate_action(
+            &f.main.window,
+            "win.toggle-favourite",
+            Some(&id.to_variant()),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let favs = f.main.db.borrow().favourites(Kind::Tv).unwrap_or_default();
+    check!(favs.len() == 2, "stored favourites: {favs:?}");
+    WidgetExt::activate_action(&f.main.window, "win.show-favourites", None)
+        .map_err(|e| e.to_string())?;
+    check!(
+        f.main.visible_channel_count(Kind::Tv) == 2,
+        "favourites view shows {}",
+        f.main.visible_channel_count(Kind::Tv)
+    );
+    // Zapping stays inside the favourites and wraps around.
+    f.main.zap(1);
+    f.main.zap(1);
+    wait_until("zapping among favourites", TIMEOUT, || {
+        playing("Zap A") || playing("Zap B")
+    })
+    .await?;
+    // Favourites survive a list reload (rows are rebuilt).
+    f.main.reload();
+    check!(
+        f.main.visible_channel_count(Kind::Tv) == 2,
+        "after reload the favourites view shows {}",
+        f.main.visible_channel_count(Kind::Tv)
+    );
+
+    // Clean-up: remove the favourites (the ★ entry disappears) and the channels.
+    for id in &ids[..2] {
+        WidgetExt::activate_action(
+            &f.main.window,
+            "win.toggle-favourite",
+            Some(&id.to_variant()),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    check!(
+        f.main
+            .db
+            .borrow()
+            .favourites(Kind::Tv)
+            .unwrap_or_default()
+            .is_empty(),
+        "favourites not removed"
+    );
+    check!(
+        f.main.visible_channel_count(Kind::Tv) == total,
+        "without favourites the list shows {} of {total}",
+        f.main.visible_channel_count(Kind::Tv)
+    );
+    f.main.player().stop();
+    for id in ids {
+        let _ = f.main.db.borrow().delete_local_channel(id);
+    }
+    f.main.reload();
     Ok(())
 }

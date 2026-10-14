@@ -13,12 +13,14 @@ gtk = { version = "0.11.5", package = "gtk4", features = ["v4_14"] }
 libc = { version = "0.2.190", optional = true }
 libloading = { version = "0.9.0", optional = true }
 libmpv2 = { version = "6.0.0", optional = true }
+# Raw events: libmpv2 drops the playlist entry id of START_FILE / END_FILE.
+libmpv2-sys = { version = "4.0.1", optional = true }
 tvmaxe-core = { version = "0.1.0", path = "../tvmaxe-core" }
 
 [features]
 default = ["mpv"]
 # Video backend: libmpv rendered into a GtkGLArea.
-mpv = ["dep:libmpv2", "dep:libloading", "dep:libc"]
+mpv = ["dep:libmpv2", "dep:libmpv2-sys", "dep:libloading", "dep:libc"]
 
 [[bin]]
 name = "tvmaxe"

@@ -14,7 +14,7 @@
 #[macro_use]
 mod common;
 
-use common::{DEAD_URL, TEST_VIDEO, TestResult, sleep, wait_until};
+use common::{DEAD_URL, TEST_AUDIO, TEST_VIDEO, TestResult, sleep, wait_until};
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::io::{Read, Write};
@@ -46,6 +46,13 @@ fn main() {
                 Box::pin(sends_channel_http_headers())
             }),
             ("pause_and_stop", || Box::pin(pause_and_stop())),
+            ("switch_away_from_dead_url", || {
+                Box::pin(switch_away_from_dead_url())
+            }),
+            ("plays_audio_only_radio", || {
+                Box::pin(plays_audio_only_radio())
+            }),
+            ("audio_tracks", || Box::pin(audio_tracks())),
         ],
     );
 }
@@ -228,6 +235,31 @@ async fn falls_back_to_next_url() -> TestResult {
     Ok(())
 }
 
+/// Fast zapping: the late error of a dead URL that was already replaced must
+/// not fail the channel that replaced it.
+async fn switch_away_from_dead_url() -> TestResult {
+    let rig = Rig::new().await?;
+    // Several delays, so the error arrives before and after the switch.
+    for delay in [0, 30, 60, 120] {
+        rig.player.play(urls(&[DEAD_URL]), StreamOptions::default());
+        sleep(delay).await;
+        // A failure before the switch is the dead channel's own.
+        rig.events.borrow_mut().clear();
+        rig.player
+            .play(urls(&[TEST_VIDEO]), StreamOptions::default());
+        rig.wait_playing()
+            .await
+            .map_err(|e| format!("after {delay} ms: {e}"))?;
+        sleep(300).await;
+        check!(
+            !rig.has(|e| matches!(e, PlayerEvent::Failed(_))),
+            "after {delay} ms: the dead URL failed the new channel"
+        );
+        check!(rig.player.is_active(), "after {delay} ms: player stopped");
+    }
+    Ok(())
+}
+
 async fn fails_when_all_urls_fail() -> TestResult {
     let rig = Rig::new().await?;
     rig.player.play(
@@ -358,4 +390,61 @@ async fn pause_and_stop() -> TestResult {
         "playback time after Stop"
     );
     Ok(())
+}
+
+/// Radio (audio only) plays even without a sound card: mpv falls back to a
+/// silent output instead of failing.
+async fn plays_audio_only_radio() -> TestResult {
+    let rig = Rig::new().await?;
+    rig.player
+        .play(urls(&[TEST_AUDIO]), StreamOptions::default());
+    rig.wait_playing().await?;
+    wait_until("radio time advances", START_TIMEOUT, || {
+        rig.player.playback_time().is_some_and(|t| t > 0.5)
+    })
+    .await
+}
+
+/// The audio tracks are listed, the preferred language is chosen first, and
+/// another track can be selected.
+async fn audio_tracks() -> TestResult {
+    let dir = common::TempDir::new("audio");
+    let Some(src) = common::ts_source_two_audio(&dir.0) else {
+        return Ok(());
+    };
+    let rig = Rig::new().await?;
+    rig.player.apply_settings(&PlaybackSettings {
+        audio_languages: "ro".into(),
+        ..Default::default()
+    });
+    rig.player
+        .play(urls(&[src.to_str().unwrap()]), StreamOptions::default());
+    rig.wait_playing().await?;
+    let selected_lang = || {
+        rig.player
+            .audio_tracks()
+            .into_iter()
+            .find(|t| t.selected)
+            .and_then(|t| t.lang)
+    };
+    wait_until("two audio tracks, Romanian selected", START_TIMEOUT, || {
+        rig.player.audio_tracks().len() == 2 && selected_lang().as_deref() == Some("ron")
+    })
+    .await
+    .map_err(|e| format!("{e}; tracks {:?}", rig.player.audio_tracks()))?;
+    let tracks = rig.player.audio_tracks();
+    let ron = tracks
+        .iter()
+        .find(|t| t.lang.as_deref() == Some("ron"))
+        .unwrap();
+    check!(ron.channels == Some(6), "channels: {:?}", ron.channels);
+    let eng = tracks
+        .iter()
+        .find(|t| t.lang.as_deref() == Some("eng"))
+        .unwrap();
+    rig.player.set_audio_track(eng.id);
+    wait_until("English selected", START_TIMEOUT, || {
+        selected_lang().as_deref() == Some("eng")
+    })
+    .await
 }

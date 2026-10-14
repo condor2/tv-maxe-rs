@@ -80,6 +80,7 @@ pub fn setup_app(app: &gtk::Application) {
         ("win.recordings", &["<Ctrl>j"]),
         ("win.record", &["<Ctrl><Shift>r"]),
         ("win.sleep-timer", &["<Ctrl>t"]),
+        ("win.favourite-current", &["<Ctrl>d"]),
         ("win.search", &["<Ctrl>f"]),
         ("win.fullscreen", &["F11"]),
         ("win.show-list", &["F9"]),
@@ -148,6 +149,27 @@ fn menu_bar() -> gio::Menu {
     view.append(Some(tr("Channel list")), Some("win.show-list"));
     view.append(Some(tr("Search channel")), Some("win.search"));
     view.append(Some(tr("TV guide")), Some("win.guide"));
+    let zap = gio::Menu::new();
+    // Handled by the window's key controller (they must not steal keys from
+    // text fields), so the keys are only shown here.
+    for (label, action, accel) in [
+        (tr("Next channel"), "win.zap-next", "Page_Down"),
+        (tr("Previous channel"), "win.zap-prev", "Page_Up"),
+        (tr("Last channel watched"), "win.zap-back", "BackSpace"),
+        (tr("Next audio track"), "win.cycle-audio", "a"),
+    ] {
+        let item = gio::MenuItem::new(Some(label), Some(action));
+        item.set_attribute_value("accel", Some(&accel.to_variant()));
+        zap.append_item(&item);
+    }
+    let fav = gio::Menu::new();
+    fav.append(Some(tr("Show favourites")), Some("win.show-favourites"));
+    fav.append(
+        Some(tr("Add to / remove from favourites")),
+        Some("win.favourite-current"),
+    );
+    view.append_section(None, &zap);
+    view.append_section(None, &fav);
 
     let help = gio::Menu::new();
     help.append(Some(tr("About TV-Maxe")), Some("win.about"));
@@ -171,7 +193,9 @@ fn load_css() {
          .epg-current { background: alpha(@theme_selected_bg_color, 0.18); border-radius: 6px; }
          .epg-past { opacity: 0.55; }
          .recording-indicator { color: #e01b24; font-weight: bold; }
-         .recording-active { color: #e01b24; }",
+         .recording-active { color: #e01b24; }
+         .favourite-star { color: #e5a50a; }
+         .zap-osd { font-size: 1.6em; font-weight: bold; padding: 6px 14px; border-radius: 8px; }",
     );
     gtk::style_context_add_provider_for_display(
         &gtk::gdk::Display::default().expect("display"),

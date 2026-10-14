@@ -69,6 +69,76 @@ pub trait Backend {
     fn position(&self) -> Option<f64>;
     /// Applies the playback settings (from Preferences). Can be called at any time.
     fn apply_settings(&self, settings: &PlaybackSettings);
+    /// The audio tracks of the current stream.
+    fn audio_tracks(&self) -> Vec<AudioTrack> {
+        Vec::new()
+    }
+    /// Switches to audio track `id` (from [`AudioTrack::id`]).
+    fn set_audio_track(&self, _id: i64) {}
+}
+
+/// An audio track of the stream (several languages, commentary…).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AudioTrack {
+    pub id: i64,
+    /// ISO 639 code from the stream ("ron", "eng"…), if any.
+    pub lang: Option<String>,
+    pub title: Option<String>,
+    pub codec: Option<String>,
+    pub channels: Option<i64>,
+    pub selected: bool,
+}
+
+impl AudioTrack {
+    /// "Romanian (AAC, 5.1)" or "Track 2 (MP2, stereo)".
+    pub fn label(&self) -> String {
+        let name = self
+            .title
+            .clone()
+            .or_else(|| self.lang.as_deref().map(language_name))
+            .unwrap_or_else(|| tvmaxe_core::i18n::fill(tr("Track %1"), &[&self.id]));
+        let channels = self.channels.map(|c| match c {
+            1 => tr("mono").to_string(),
+            2 => tr("stereo").to_string(),
+            6 => "5.1".to_string(),
+            8 => "7.1".to_string(),
+            n => tvmaxe_core::i18n::fill(tr("%1 channels"), &[&n]),
+        });
+        let details: Vec<String> = [self.codec.as_deref().map(str::to_uppercase), channels]
+            .into_iter()
+            .flatten()
+            .collect();
+        if details.is_empty() {
+            name
+        } else {
+            format!("{name} ({})", details.join(", "))
+        }
+    }
+}
+
+/// Language name for the ISO 639 codes common in IPTV streams.
+pub fn language_name(code: &str) -> String {
+    let name = match code.to_ascii_lowercase().as_str() {
+        "ro" | "ron" | "rum" | "mol" => tr("Romanian"),
+        "en" | "eng" => tr("English"),
+        "hu" | "hun" => tr("Hungarian"),
+        "de" | "deu" | "ger" => tr("German"),
+        "fr" | "fra" | "fre" => tr("French"),
+        "es" | "spa" => tr("Spanish"),
+        "it" | "ita" => tr("Italian"),
+        "ru" | "rus" => tr("Russian"),
+        "uk" | "ukr" => tr("Ukrainian"),
+        "bg" | "bul" => tr("Bulgarian"),
+        "sr" | "srp" => tr("Serbian"),
+        "tr" | "tur" => tr("Turkish"),
+        "pl" | "pol" => tr("Polish"),
+        "el" | "ell" | "gre" => tr("Greek"),
+        "pt" | "por" => tr("Portuguese"),
+        "nl" | "nld" | "dut" => tr("Dutch"),
+        "und" | "mis" | "mul" | "" => return tr("Unknown language").to_string(),
+        _ => return code.to_uppercase(),
+    };
+    name.to_string()
 }
 
 /// Video scaling quality.
@@ -122,6 +192,8 @@ pub struct PlaybackSettings {
     /// `None` = User-Agent implicit.
     pub user_agent: Option<String>,
     pub video_quality: VideoQuality,
+    /// Preferred audio languages, e.g. "ro,en" (empty = the stream's default).
+    pub audio_languages: String,
 }
 
 impl Default for PlaybackSettings {
@@ -132,6 +204,7 @@ impl Default for PlaybackSettings {
             network_timeout_secs: 15,
             user_agent: None,
             video_quality: VideoQuality::Auto,
+            audio_languages: String::new(),
         }
     }
 }
@@ -258,6 +331,21 @@ impl Player {
 
     pub fn apply_settings(&self, settings: &PlaybackSettings) {
         self.backend.apply_settings(settings);
+    }
+
+    /// The audio tracks of what is playing (empty when stopped).
+    pub fn audio_tracks(&self) -> Vec<AudioTrack> {
+        if self.active.get() {
+            self.backend.audio_tracks()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn set_audio_track(&self, id: i64) {
+        if self.active.get() {
+            self.backend.set_audio_track(id);
+        }
     }
 
     /// Playback time since the channel started, in seconds.
@@ -497,6 +585,39 @@ mod tests {
         };
         player.apply_settings(&s);
         assert_eq!(fake.settings.borrow().as_ref(), Some(&s));
+    }
+
+    #[test]
+    fn audio_track_labels() {
+        let t = AudioTrack {
+            id: 2,
+            lang: Some("eng".into()),
+            title: None,
+            codec: Some("aac".into()),
+            channels: Some(6),
+            selected: true,
+        };
+        assert_eq!(t.label(), format!("{} (AAC, 5.1)", tr("English")));
+        let t = AudioTrack {
+            id: 3,
+            lang: Some("xyz".into()),
+            title: None,
+            codec: None,
+            channels: None,
+            selected: false,
+        };
+        assert_eq!(t.label(), "XYZ");
+        let t = AudioTrack {
+            id: 4,
+            lang: None,
+            title: Some("Commentary".into()),
+            codec: Some("mp2".into()),
+            channels: Some(2),
+            selected: false,
+        };
+        assert_eq!(t.label(), format!("Commentary (MP2, {})", tr("stereo")));
+        assert_eq!(language_name("ron"), tr("Romanian"));
+        assert_eq!(language_name("und"), tr("Unknown language"));
     }
 
     #[test]

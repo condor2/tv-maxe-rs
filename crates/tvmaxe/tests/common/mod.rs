@@ -214,3 +214,46 @@ pub fn ts_source(dir: &std::path::Path, seconds: u32) -> Option<std::path::PathB
         }
     }
 }
+
+/// Like [`ts_source`], with two audio tracks: English (mono) and Romanian (5.1).
+pub fn ts_source_two_audio(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let out = dir.join("two-audio.ts");
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-y"])
+        .args([
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=320x240:rate=25:duration=30",
+        ])
+        .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=30"])
+        .args(["-f", "lavfi", "-i", "sine=frequency=880:duration=30"])
+        .args(["-map", "0:v", "-map", "1:a", "-map", "2:a"])
+        .args([
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-c:a",
+            "aac",
+            "-ac:a:1",
+            "6",
+        ])
+        .args([
+            "-metadata:s:a:0",
+            "language=eng",
+            "-metadata:s:a:1",
+            "language=ron",
+        ])
+        .args(["-f", "mpegts"])
+        .arg(&out)
+        .status();
+    match status {
+        Ok(s) if s.success() => Some(out),
+        _ if std::env::var_os("CI").is_some() => panic!("ffmpeg is required in CI"),
+        _ => {
+            println!("    (ffmpeg not found: audio track part skipped)");
+            None
+        }
+    }
+}

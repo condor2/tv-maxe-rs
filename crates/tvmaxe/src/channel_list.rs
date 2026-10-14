@@ -3,7 +3,7 @@
 
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use tvmaxe_core::i18n::{fill, tr};
 use tvmaxe_core::{Kind, StoredChannel, Subscription};
@@ -18,6 +18,8 @@ pub struct ChannelRow {
     pub epg_key: Option<String>,
     /// Title of the programme on air (updated periodically).
     pub now_title: RefCell<Option<String>>,
+    /// Marked as a favourite (★).
+    pub favourite: Cell<bool>,
     texture: RefCell<Option<gdk::Texture>>,
 }
 
@@ -28,6 +30,7 @@ impl ChannelRow {
             subscription,
             epg_key,
             now_title: RefCell::default(),
+            favourite: Cell::new(false),
             texture: RefCell::default(),
         }
     }
@@ -54,6 +57,9 @@ impl ChannelRow {
     }
 }
 
+/// Picker id of the "★ Favourites" entry (subscription ids are positive).
+const FAVOURITES: i64 = -1;
+
 pub fn row_of(obj: &glib::Object) -> std::cell::Ref<'_, ChannelRow> {
     obj.downcast_ref::<glib::BoxedAnyObject>()
         .expect("BoxedAnyObject")
@@ -74,7 +80,8 @@ pub struct ChannelList {
     list_view: gtk::ListView,
     source: gtk::DropDown,
     search: gtk::SearchEntry,
-    /// Subscription ids in the picker (index 0 = "All lists").
+    /// Subscription ids in the picker (index 0 = "All lists", then
+    /// [`FAVOURITES`] when there are any).
     source_ids: RefCell<Vec<i64>>,
     stack: gtk::Stack,
     on_activate: RefCell<Option<Callback>>,
@@ -240,6 +247,11 @@ impl ChannelList {
                 .build();
             row.append(&image);
             row.append(&text);
+            let star = gtk::Image::from_icon_name("starred-symbolic");
+            star.add_css_class("favourite-star");
+            star.set_margin_end(6);
+            star.set_tooltip_text(Some(tr("Favourite")));
+            row.append(&star);
 
             // Right-click → the channel menu (built by the window).
             let click = gtk::GestureClick::builder().button(3).build();
@@ -282,10 +294,10 @@ impl ChannelList {
             };
             let row = row_of(obj);
             let sel = this.source.selected() as usize;
-            if sel > 0
-                && this.source_ids.borrow().get(sel).copied() != Some(row.channel.subscription_id)
-            {
-                return false;
+            match this.source_ids.borrow().get(sel).copied() {
+                Some(FAVOURITES) if !row.favourite.get() => return false,
+                Some(id) if id > 0 && id != row.channel.subscription_id => return false,
+                _ => {}
             }
             let g = this.group.selected() as usize;
             if g > 0
@@ -425,8 +437,12 @@ impl ChannelList {
             })
             .collect();
         let mut names = vec![tr("All lists")];
-        names.extend(subs.iter().map(|s| s.display_name()));
         let mut ids = vec![0];
+        if self.has_favourites() {
+            names.push(tr("★ Favourites"));
+            ids.push(FAVOURITES);
+        }
+        names.extend(subs.iter().map(|s| s.display_name()));
         ids.extend(subs.iter().map(|s| s.id));
         let keep = current
             .and_then(|c| ids.iter().position(|&i| i == c))
@@ -483,6 +499,107 @@ impl ChannelList {
         self.store.n_items()
     }
 
+    fn has_favourites(&self) -> bool {
+        (0..self.store.n_items()).any(|i| {
+            self.store
+                .item(i)
+                .is_some_and(|o| row_of(&o).favourite.get())
+        })
+    }
+
+    /// Marks the favourites (by first URL, or by name) and refreshes the rows
+    /// and, if it is chosen, the favourites view. Returns whether the
+    /// subscription picker must be rebuilt (favourites appeared or vanished).
+    pub fn set_favourites(&self, favs: &[(String, String)]) -> bool {
+        let had = self.has_favourites();
+        for i in 0..self.store.n_items() {
+            let obj = self.store.item(i).unwrap();
+            let row = row_of(&obj);
+            let url = row.channel.urls.first().map(String::as_str);
+            let fav = favs
+                .iter()
+                .any(|(u, n)| Some(u.as_str()) == url || *n == row.channel.name);
+            row.favourite.set(fav);
+        }
+        self.refresh_visible();
+        if self.showing_favourites() {
+            self.filter.changed(gtk::FilterChange::Different);
+        }
+        had != self.has_favourites()
+    }
+
+    /// Shows only the favourites (picker on "★ Favourites"); `false` if
+    /// there are none.
+    pub fn show_favourites(&self) -> bool {
+        let pos = self
+            .source_ids
+            .borrow()
+            .iter()
+            .position(|&i| i == FAVOURITES);
+        match pos {
+            Some(p) => {
+                self.source.set_selected(p as u32);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn showing_favourites(&self) -> bool {
+        self.source_ids
+            .borrow()
+            .get(self.source.selected() as usize)
+            .copied()
+            == Some(FAVOURITES)
+    }
+
+    // ---------- Zapping: the channels as they are shown (filtered) ----------
+
+    /// How many channels are shown now.
+    pub fn visible_len(&self) -> u32 {
+        self.selection.n_items()
+    }
+
+    /// The shown channel at `pos` (0-based).
+    pub fn visible_item(&self, pos: u32) -> Option<glib::BoxedAnyObject> {
+        self.selection.item(pos).and_downcast()
+    }
+
+    /// Position among the shown channels of the channel with this first URL.
+    pub fn visible_position(&self, url: &str) -> Option<u32> {
+        (0..self.selection.n_items()).find(|&i| {
+            self.selection
+                .item(i)
+                .is_some_and(|o| row_of(&o).channel.urls.first().map(String::as_str) == Some(url))
+        })
+    }
+
+    pub fn selected_position(&self) -> Option<u32> {
+        let p = self.selection.selected();
+        (p != gtk::INVALID_LIST_POSITION).then_some(p)
+    }
+
+    /// Selects the shown channel at `pos` and scrolls it into view (without
+    /// moving the keyboard focus, so zapping from fullscreen stays there).
+    pub fn select_visible(&self, pos: u32) {
+        self.list_view
+            .scroll_to(pos, gtk::ListScrollFlags::SELECT, None);
+    }
+
+    /// The channel with this first URL, anywhere in the list.
+    pub fn item_by_url(&self, url: &str) -> Option<glib::BoxedAnyObject> {
+        (0..self.store.n_items())
+            .filter_map(|i| self.store.item(i).and_downcast::<glib::BoxedAnyObject>())
+            .find(|o| {
+                row_of(o.upcast_ref())
+                    .channel
+                    .urls
+                    .first()
+                    .map(String::as_str)
+                    == Some(url)
+            })
+    }
+
     fn update_empty(&self) {
         self.stack
             .set_visible_child_name(if self.store.n_items() == 0 {
@@ -532,6 +649,9 @@ fn bind_row(item: &gtk::ListItem) {
     let text = image.next_sibling().and_downcast::<gtk::Box>().unwrap();
     let label = text.first_child().and_downcast::<gtk::Label>().unwrap();
     let now = label.next_sibling().and_downcast::<gtk::Label>().unwrap();
+    if let Some(star) = text.next_sibling() {
+        star.set_visible(row.favourite.get());
+    }
     label.set_label(&row.channel.name);
     match row.now_title.borrow().as_deref() {
         Some(t) => {

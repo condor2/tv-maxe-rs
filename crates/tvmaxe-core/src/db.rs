@@ -14,7 +14,7 @@ use std::path::Path;
 /// The URL reserved for the local list ("My channels").
 pub const LOCAL_URL: &str = "local:";
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// Version 2: the TV guide (EPG).
 const SCHEMA_V2: &str = "
@@ -65,6 +65,19 @@ CREATE TABLE recordings (
     error      TEXT
 );
 CREATE INDEX recordings_by_start ON recordings(start);
+";
+
+/// Version 5: favourite channels. Kept apart from `channels`, whose rows are
+/// rewritten on every list update: a favourite is found again by its first URL
+/// (or, if the URL changed, by its name).
+const SCHEMA_V5: &str = "
+CREATE TABLE favourites (
+    kind     TEXT NOT NULL,
+    url      TEXT NOT NULL,
+    name     TEXT NOT NULL,
+    added_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (kind, url)
+);
 ";
 
 const SCHEMA: &str = "
@@ -190,7 +203,12 @@ impl Database {
                 "BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"
             ))?;
         }
-        const { assert!(SCHEMA_VERSION == 4, "add the migration for the new version") };
+        if version < 5 {
+            conn.execute_batch(&format!(
+                "BEGIN; {SCHEMA_V5} PRAGMA user_version = 5; COMMIT;"
+            ))?;
+        }
+        const { assert!(SCHEMA_VERSION == 5, "add the migration for the new version") };
         Ok(Self { conn })
     }
 
@@ -624,6 +642,35 @@ impl Database {
         Ok(())
     }
 
+    // ---------- Favourites ----------
+
+    /// The favourites of one kind: (first URL, name).
+    pub fn favourites(&self, kind: Kind) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT url, name FROM favourites WHERE kind = ?1 ORDER BY added_at, rowid")?;
+        let rows = stmt.query_map([kind.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Adds or removes a favourite (identified by its first URL; removing also
+    /// drops entries with the same name, which matched it by name).
+    pub fn set_favourite(&self, kind: Kind, url: &str, name: &str, on: bool) -> Result<()> {
+        if on {
+            self.conn.execute(
+                "INSERT INTO favourites (kind, url, name) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(kind, url) DO UPDATE SET name = excluded.name",
+                params![kind.as_str(), url, name],
+            )?;
+        } else {
+            self.conn.execute(
+                "DELETE FROM favourites WHERE kind = ?1 AND (url = ?2 OR name = ?3)",
+                params![kind.as_str(), url, name],
+            )?;
+        }
+        Ok(())
+    }
+
     // ---------- Recordings ----------
 
     /// Stores a new recording and returns its id.
@@ -939,6 +986,31 @@ mod tests {
     }
 
     #[test]
+    fn favourites() {
+        let db = Database::open_in_memory().unwrap();
+        db.set_favourite(Kind::Tv, "http://a", "TVR 1", true)
+            .unwrap();
+        db.set_favourite(Kind::Tv, "http://b", "Pro TV", true)
+            .unwrap();
+        db.set_favourite(Kind::Radio, "http://r", "Radio", true)
+            .unwrap();
+        db.set_favourite(Kind::Tv, "http://a", "TVR 1 HD", true)
+            .unwrap(); // renamed
+        assert_eq!(
+            db.favourites(Kind::Tv).unwrap(),
+            [
+                ("http://a".to_string(), "TVR 1 HD".to_string()),
+                ("http://b".to_string(), "Pro TV".to_string())
+            ]
+        );
+        // Removing a channel whose URL changed: matched by name.
+        db.set_favourite(Kind::Tv, "http://new-b", "Pro TV", false)
+            .unwrap();
+        assert_eq!(db.favourites(Kind::Tv).unwrap().len(), 1);
+        assert_eq!(db.favourites(Kind::Radio).unwrap().len(), 1);
+    }
+
+    #[test]
     fn recordings_roundtrip() {
         let db = Database::open_in_memory().unwrap();
         let mut r = Recording {
@@ -1186,7 +1258,7 @@ mod tests {
             .conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 4);
+        assert_eq!(v, 5);
         drop(db);
         for ext in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{ext}", p.display()));
