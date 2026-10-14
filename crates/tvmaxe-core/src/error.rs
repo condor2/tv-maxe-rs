@@ -5,17 +5,17 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug)]
 pub enum Error {
-    /// Eroare SQLite (baza proprie sau o listă `.db` importată).
+    /// SQLite error (our own database or an imported `.db` list).
     Db(rusqlite::Error),
-    /// Fișier local inaccesibil.
+    /// Local file not accessible.
     Io(std::io::Error),
-    /// Descărcare eșuată.
+    /// Download failed.
     Http(String),
-    /// Conținutul nu e o listă recunoscută.
+    /// The content is not a recognised list.
     UnknownFormat,
-    /// Lista e validă, dar nu conține niciun canal.
+    /// The list is valid but contains no channels.
     Empty,
-    /// Listă coruptă (detaliu în mesaj).
+    /// Corrupt list (details in the message).
     Invalid(String),
 }
 

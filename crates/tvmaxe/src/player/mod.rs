@@ -1,21 +1,21 @@
-//! Player-ul aplicației, separat în două straturi:
+//! The application player, split in two layers:
 //!
-//! * [`Player`] — fațada folosită de interfață. Ține logica independentă de
-//!   motorul video: lista de URL-uri a canalului și trecerea automată la
-//!   următorul când unul cade (ca în TV-Maxe), starea activ/oprit, pauza și
-//!   evenimentele către fereastră.
-//! * [`Backend`] — motorul video propriu-zis. Face doar operații simple
-//!   (încarcă un URL, oprește, volum…) și raportează ce se întâmplă.
+//! * [`Player`] — the facade used by the interface. It holds the logic that does
+//!   not depend on the video engine: the channel's URL list and switching to the
+//!   next one when one fails (like TV-Maxe), the active/stopped state, pause and
+//!   the events sent to the window.
+//! * [`Backend`] — the actual video engine. It only does simple operations
+//!   (load a URL, stop, volume…) and reports what happens.
 //!
-//! Backend-uri disponibile (feature Cargo): `mpv` (implicit).
+//! Available backends (Cargo feature): `mpv` (default).
 //!
-//! ## Adăugarea unui backend nou (de ex. libVLC 4)
+//! ## Adding a new backend (e.g. libVLC 4)
 //!
-//! 1. Modul nou `player/<nume>/mod.rs` cu un tip care implementează [`Backend`].
-//! 2. Feature nou în `crates/tvmaxe/Cargo.toml`, cu dependențele lui opționale.
-//! 3. O ramură în [`create_backend`].
+//! 1. A new `player/<name>/mod.rs` module with a type that implements [`Backend`].
+//! 2. A new feature in `crates/tvmaxe/Cargo.toml`, with its optional dependencies.
+//! 3. A branch in [`create_backend`].
 //!
-//! Restul aplicației nu se schimbă: fereastra vorbește doar cu [`Player`].
+//! The rest of the application does not change: the window only talks to [`Player`].
 
 #[cfg(feature = "mpv")]
 mod mpv;
@@ -28,56 +28,56 @@ use std::rc::{Rc, Weak};
 pub use tvmaxe_core::StreamOptions;
 use tvmaxe_core::i18n::tr;
 
-// ---------- Contractul cu backend-ul ----------
+// ---------- Backend contract ----------
 
-/// Ce raportează un backend. Fațada decide ce înseamnă pentru utilizator.
+/// What a backend reports. The facade decides what it means for the user.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendEvent {
-    /// A început deschiderea URL-ului.
+    /// Opening the URL has started.
     Connecting,
-    /// Redarea a pornit (sau a repornit după buffering).
+    /// Playback started (or restarted after buffering).
     Playing,
-    /// Așteaptă date; procentul de umplere a buffer-ului.
+    /// Waiting for data; buffer fill percentage.
     Buffering(i64),
-    /// Stream-ul s-a terminat (la TV live înseamnă că transmisia a căzut).
+    /// The stream ended (for live TV it means the broadcast dropped).
     Ended,
-    /// URL-ul nu poate fi redat; mesaj pentru utilizator.
+    /// The URL cannot be played; message for the user.
     Failed(String),
 }
 
 pub type BackendHandler = Box<dyn Fn(BackendEvent)>;
 
-/// Un motor video. Toate metodele se apelează din firul principal GTK, iar
-/// evenimentele trebuie livrate tot pe firul principal.
+/// A video engine. All methods are called from the GTK main thread, and
+/// events must be delivered on the main thread too.
 pub trait Backend {
-    /// Widget-ul în care se afișează imaginea.
+    /// The widget that shows the picture.
     fn widget(&self) -> gtk::Widget;
-    /// Unde trimite backend-ul evenimentele. Apelat o singură dată.
+    /// Where the backend sends its events. Called once.
     fn set_event_handler(&self, handler: BackendHandler);
-    /// Începe redarea unui URL, înlocuind ce rula. Eroarea = nu a putut porni deloc.
-    /// `http` = antetele cerute de canal (referrer, User-Agent); câmpurile goale
-    /// înseamnă valorile implicite.
+    /// Starts playing a URL, replacing whatever was playing. Error = it could not start at all.
+    /// `http` = the headers the channel requires (referrer, User-Agent); empty fields
+    /// mean the defaults.
     fn load(&self, url: &str, http: &StreamOptions) -> Result<(), String>;
     fn stop(&self);
     fn set_paused(&self, paused: bool);
     fn is_paused(&self) -> bool;
-    /// Volum 0–100.
+    /// Volume 0–100.
     fn set_volume(&self, percent: f64);
-    /// Secunde de la pornirea URL-ului curent.
+    /// Seconds since the current URL started.
     fn position(&self) -> Option<f64>;
-    /// Aplică setările de redare (din Preferințe). Poate fi apelat oricând.
+    /// Applies the playback settings (from Preferences). Can be called at any time.
     fn apply_settings(&self, settings: &PlaybackSettings);
 }
 
-/// Calitatea scalării video.
+/// Video scaling quality.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VideoQuality {
-    /// Calitate, dar trece singur pe „rapid” dacă sistemul nu face față.
+    /// Quality, but switches to "fast" by itself if the system cannot keep up.
     #[default]
     Auto,
-    /// Mereu calitate (poate sacada pe calculatoare slabe).
+    /// Always quality (may stutter on slow computers).
     Quality,
-    /// Mereu rapid (scalare biliniară, consum mic).
+    /// Always fast (bilinear scaling, low load).
     Fast,
 }
 
@@ -109,13 +109,13 @@ impl VideoQuality {
     }
 }
 
-/// Setările care privesc motorul video.
+/// Settings that concern the video engine.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlaybackSettings {
     pub hardware_decoding: bool,
-    /// Cât conținut se ține în buffer înainte/în timpul redării.
+    /// How much content is kept in the buffer before/while playing.
     pub cache_secs: u32,
-    /// După cât timp fără răspuns un URL e considerat căzut.
+    /// After how long without an answer a URL is considered dead.
     pub network_timeout_secs: u32,
     /// `None` = User-Agent implicit.
     pub user_agent: Option<String>,
@@ -134,7 +134,7 @@ impl Default for PlaybackSettings {
     }
 }
 
-/// Backend-ul ales la compilare.
+/// The backend chosen at compile time.
 fn create_backend() -> anyhow::Result<Rc<dyn Backend>> {
     #[cfg(feature = "mpv")]
     {
@@ -144,18 +144,18 @@ fn create_backend() -> anyhow::Result<Rc<dyn Backend>> {
     unreachable!()
 }
 
-// ---------- Fațada ----------
+// ---------- Facade ----------
 
-/// Ce vede fereastra.
+/// What the window sees.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayerEvent {
     Connecting,
     Playing,
-    /// Procent de umplere a buffer-ului.
+    /// Buffer fill percentage.
     Buffering(i64),
     Paused(bool),
     Stopped,
-    /// Toate URL-urile canalului au eșuat.
+    /// Every URL of the channel failed.
     Failed(String),
 }
 
@@ -166,9 +166,9 @@ pub struct Player {
     handler: RefCell<Option<Handler>>,
     urls: RefCell<Vec<String>>,
     http: RefCell<StreamOptions>,
-    /// Indexul URL-ului curent în lista canalului.
+    /// Index of the current URL in the channel's list.
     index: Cell<usize>,
-    /// Câte URL-uri s-au încercat pentru pornirea curentă (inclusiv cel curent).
+    /// How many URLs were tried for the current start (including the current one).
     tried: Cell<usize>,
     active: Cell<bool>,
 }
@@ -205,14 +205,14 @@ impl Player {
         *self.handler.borrow_mut() = Some(Box::new(f));
     }
 
-    /// Pornește un canal; URL-urile sunt încercate în ordine.
+    /// Starts a channel; the URLs are tried in order.
     pub fn play(&self, urls: Vec<String>, http: StreamOptions) {
         self.play_from(urls, http, 0);
     }
 
-    /// Pornește un canal de la sursa `start` (aleasă de utilizator). Dacă
-    /// aceasta cade, se încearcă celelalte în ordine, apoi de la început
-    /// (`start = 1` din 3 → 1, 2, 0).
+    /// Starts a channel from source `start` (chosen by the user). If it
+    /// fails, the others are tried in order, then from the beginning
+    /// (`start = 1` of 3 → 1, 2, 0).
     pub fn play_from(&self, urls: Vec<String>, http: StreamOptions, start: usize) {
         let start = if start < urls.len() { start } else { 0 };
         *self.urls.borrow_mut() = urls;
@@ -222,7 +222,7 @@ impl Player {
         self.load_current();
     }
 
-    /// Sursa (indexul URL-ului) care rulează sau se conectează acum.
+    /// The source (URL index) that is playing or connecting now.
     pub fn source_index(&self) -> Option<usize> {
         self.active.get().then(|| self.index.get())
     }
@@ -258,7 +258,7 @@ impl Player {
         self.backend.apply_settings(settings);
     }
 
-    /// Timpul de redare de la pornirea canalului, în secunde.
+    /// Playback time since the channel started, in seconds.
     pub fn playback_time(&self) -> Option<f64> {
         if self.active.get() {
             self.backend.position()
@@ -287,7 +287,7 @@ impl Player {
         }
     }
 
-    /// URL-ul curent a căzut: următorul, sau eroare dacă nu mai sunt.
+    /// The current URL failed: the next one, or an error if there are none left.
     fn on_failure(&self, msg: String) {
         if !self.active.get() {
             return;
@@ -305,7 +305,7 @@ impl Player {
 
     fn on_backend_event(&self, ev: BackendEvent) {
         if !self.active.get() {
-            return; // evenimente întârziate după Stop
+            return; // late events after Stop
         }
         match ev {
             BackendEvent::Connecting => self.emit(PlayerEvent::Connecting),
@@ -321,14 +321,14 @@ impl Player {
 mod tests {
     use super::*;
 
-    /// Backend fals: reține ce i se cere; evenimentele sunt trimise manual.
+    /// Fake backend: records what it is asked; events are sent by hand.
     #[derive(Default)]
     struct Fake {
         loads: RefCell<Vec<String>>,
         handler: RefCell<Option<BackendHandler>>,
         paused: Cell<bool>,
         stops: Cell<u32>,
-        /// URL-uri pentru care `load` eșuează imediat.
+        /// URLs for which `load` fails immediately.
         refuse: Vec<&'static str>,
         settings: RefCell<Option<PlaybackSettings>>,
         last_http: RefCell<Option<StreamOptions>>,
@@ -336,7 +336,7 @@ mod tests {
 
     impl Fake {
         fn fire(&self, ev: BackendEvent) {
-            // Handler-ul poate apela din nou `load` (trecerea la rezervă).
+            // The handler may call `load` again (switching to a fallback).
             let h = self.handler.borrow_mut().take().unwrap();
             h(ev);
             *self.handler.borrow_mut() = Some(h);
@@ -345,7 +345,7 @@ mod tests {
 
     impl Backend for Fake {
         fn widget(&self) -> gtk::Widget {
-            unimplemented!("testele nu au nevoie de UI")
+            unimplemented!("the tests need no UI")
         }
         fn set_event_handler(&self, handler: BackendHandler) {
             *self.handler.borrow_mut() = Some(handler);
@@ -355,7 +355,7 @@ mod tests {
             self.last_http.replace(Some(http.clone()));
             self.paused.set(false);
             if self.refuse.contains(&url) {
-                Err(format!("refuzat: {url}"))
+                Err(format!("refused: {url}"))
             } else {
                 Ok(())
             }
@@ -391,7 +391,7 @@ mod tests {
         v.iter().map(|s| s.to_string()).collect()
     }
 
-    /// Ca `Player::play`, fără antete speciale.
+    /// Like `Player::play`, without special headers.
     trait PlayUrls {
         fn play_urls(&self, urls: Vec<String>);
     }
@@ -418,25 +418,25 @@ mod tests {
     fn falls_back_through_all_urls() {
         let (fake, player, events) = setup(Fake::default());
         player.play_urls(urls(&["a", "b", "c"]));
-        fake.fire(BackendEvent::Failed("a mort".into()));
+        fake.fire(BackendEvent::Failed("a dead".into()));
         fake.fire(BackendEvent::Ended);
         assert_eq!(*fake.loads.borrow(), ["a", "b", "c"]);
         assert!(player.is_active());
         assert!(events.borrow().is_empty(), "rezervele sunt transparente");
 
-        fake.fire(BackendEvent::Failed("c mort".into()));
+        fake.fire(BackendEvent::Failed("c dead".into()));
         assert!(!player.is_active());
-        assert_eq!(*events.borrow(), [PlayerEvent::Failed("c mort".into())]);
+        assert_eq!(*events.borrow(), [PlayerEvent::Failed("c dead".into())]);
     }
 
     #[test]
     fn load_error_also_falls_back() {
         let (fake, player, _) = setup(Fake {
-            refuse: vec!["rau"],
+            refuse: vec!["bad"],
             ..Default::default()
         });
-        player.play_urls(urls(&["rau", "bun"]));
-        assert_eq!(*fake.loads.borrow(), ["rau", "bun"]);
+        player.play_urls(urls(&["bad", "good"]));
+        assert_eq!(*fake.loads.borrow(), ["bad", "good"]);
         assert!(player.is_active());
     }
 
@@ -445,9 +445,9 @@ mod tests {
         let (fake, player, events) = setup(Fake::default());
         player.play_urls(urls(&["a", "b"]));
         player.stop();
-        fake.fire(BackendEvent::Failed("întârziat".into()));
+        fake.fire(BackendEvent::Failed("late".into()));
         fake.fire(BackendEvent::Playing);
-        assert_eq!(*fake.loads.borrow(), ["a"], "nu trece la rezervă după Stop");
+        assert_eq!(*fake.loads.borrow(), ["a"], "no fallback after Stop");
         assert_eq!(*events.borrow(), [PlayerEvent::Stopped]);
         assert_eq!(player.playback_time(), None);
     }
@@ -464,7 +464,7 @@ mod tests {
     #[test]
     fn events_and_pause() {
         let (fake, player, events) = setup(Fake::default());
-        player.toggle_pause(); // nimic de pus pe pauză încă
+        player.toggle_pause(); // nothing to pause yet
         player.play_urls(urls(&["a"]));
         fake.fire(BackendEvent::Connecting);
         fake.fire(BackendEvent::Buffering(40));
@@ -513,15 +513,19 @@ mod tests {
         fake.fire(BackendEvent::Failed(String::new()));
         assert_eq!(player.source_index(), Some(2));
         fake.fire(BackendEvent::Failed(String::new()));
-        assert_eq!(player.source_index(), Some(0), "revine la prima sursă");
-        fake.fire(BackendEvent::Failed("toate".into()));
+        assert_eq!(
+            player.source_index(),
+            Some(0),
+            "wraps around to the first source"
+        );
+        fake.fire(BackendEvent::Failed("all".into()));
         assert_eq!(
             *fake.loads.borrow(),
             ["b", "c", "a"],
-            "fiecare sursă o singură dată"
+            "each source only once"
         );
         assert_eq!(player.source_index(), None);
-        assert_eq!(*events.borrow(), [PlayerEvent::Failed("toate".into())]);
+        assert_eq!(*events.borrow(), [PlayerEvent::Failed("all".into())]);
     }
 
     #[test]

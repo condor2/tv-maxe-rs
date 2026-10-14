@@ -1,5 +1,5 @@
-//! Operații lente (rețea + scriere în bază), gândite să ruleze pe fire
-//! separate de UI. Fiecare își deschide propria conexiune la bază.
+//! Slow operations (network + database writes), meant to run on threads
+//! separate from the UI. Each one opens its own database connection.
 
 use crate::i18n::{fill, tr};
 use crate::{Database, Error, Result, formats};
@@ -15,8 +15,8 @@ pub const DEFAULT_USER_AGENT: &str = concat!("TV-Maxe/", env!("CARGO_PKG_VERSION
 
 static USER_AGENT: RwLock<Option<String>> = RwLock::new(None);
 
-/// User-Agent pentru descărcarea listelor și logo-urilor (`None` = implicit).
-/// Unele servere IPTV acceptă doar anumite valori.
+/// User-Agent for downloading lists and logos (`None` = default).
+/// Some IPTV servers only accept certain values.
 pub fn set_user_agent(ua: Option<String>) {
     *USER_AGENT.write().unwrap() = ua.filter(|s| !s.trim().is_empty());
 }
@@ -34,7 +34,7 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-/// Citește o sursă: `http(s)://`, `file://` sau cale locală.
+/// Reads a source: `http(s)://`, `file://` or a local path.
 pub fn fetch(source: &str, limit: u64) -> Result<Vec<u8>> {
     let data = if source.starts_with("http://") || source.starts_with("https://") {
         let mut resp = agent()
@@ -63,7 +63,7 @@ pub fn fetch(source: &str, limit: u64) -> Result<Vec<u8>> {
     Ok(data)
 }
 
-/// Descarcă și salvează un abonament. Eroarea e notată și în bază.
+/// Downloads and stores a subscription. The error is also recorded in the database.
 pub fn update_subscription(db_path: &Path, id: i64) -> Result<usize> {
     let mut db = Database::open(db_path)?;
     let Some(url) = db.subscription_url(id)? else {
@@ -78,8 +78,8 @@ pub fn update_subscription(db_path: &Path, id: i64) -> Result<usize> {
     }
 }
 
-/// Descarcă logo-urile lipsă cu câteva fire în paralel.
-/// Întoarce câte au fost descărcate cu succes.
+/// Downloads the missing logos with a few threads in parallel.
+/// Returns how many were downloaded successfully.
 pub fn fetch_missing_logos(db_path: &Path, workers: usize) -> Result<usize> {
     let db = Database::open(db_path)?;
     let queue = Arc::new(Mutex::new(db.missing_logo_urls()?));
@@ -104,7 +104,7 @@ pub fn fetch_missing_logos(db_path: &Path, workers: usize) -> Result<usize> {
         .collect();
     drop(tx);
 
-    // Un singur scriitor în bază.
+    // A single database writer.
     let mut ok = 0;
     for (url, data) in rx {
         ok += usize::from(data.is_some());
@@ -116,8 +116,8 @@ pub fn fetch_missing_logos(db_path: &Path, workers: usize) -> Result<usize> {
     Ok(ok)
 }
 
-/// Descarcă un singur logo și îl salvează (și eșecul, ca să nu se reîncerce).
-/// Pentru încărcarea la cerere a rândurilor afișate.
+/// Downloads a single logo and stores it (the failure too, so it is not retried).
+/// Used for loading the visible rows on demand.
 pub fn fetch_logo(db_path: &Path, url: &str) -> Result<Option<Vec<u8>>> {
     let data = fetch(url, MAX_LOGO).ok().filter(|d| looks_like_image(d));
     Database::open(db_path)?.store_logo(url, data.as_deref())?;
@@ -133,12 +133,12 @@ fn looks_like_image(d: &[u8]) -> bool {
         || d.starts_with(b"<?xml")
 }
 
-/// Limita datelor transferate pentru un EPG, înainte de decomprimare.
+/// Limit of data transferred for an EPG, before decompression.
 const MAX_EPG_DOWNLOAD: u64 = 64 * 1024 * 1024;
 
-/// Descarcă și salvează un ghid XMLTV (`.xml` sau `.xml.gz`), păstrând doar
-/// canalele din listele active și emisiunile de ieri până peste o săptămână.
-/// Întoarce câte emisiuni au fost salvate.
+/// Downloads and stores an XMLTV guide (`.xml` or `.xml.gz`), keeping only
+/// the channels from the enabled lists and the programmes from yesterday to a week ahead.
+/// Returns how many programmes were stored.
 pub fn update_epg(db_path: &Path, url: &str) -> Result<usize> {
     let mut db = Database::open(db_path)?;
     let result: Result<crate::epg::Guide> = (|| {

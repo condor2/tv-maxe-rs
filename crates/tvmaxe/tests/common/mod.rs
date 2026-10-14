@@ -1,14 +1,14 @@
-//! Infrastructură comună pentru testele de integrare cu GTK.
+//! Shared infrastructure for the GTK integration tests.
 //!
-//! GTK merge doar pe firul principal și poate fi inițializat o singură dată
-//! pe proces, așa că fiecare fișier de test are `harness = false` și propriul
-//! `main`, care rulează testele unul după altul în bucla principală GLib.
+//! GTK only works on the main thread and can be initialised only once per
+//! process, so every test file has `harness = false` and its own `main`,
+//! which runs the tests one after another in the GLib main loop.
 //!
-//! Fără ecran (nici `DISPLAY`, nici `WAYLAND_DISPLAY`), testele sunt sărite,
-//! ca `cargo test` să meargă oriunde. În CI, `TVMAXE_REQUIRE_DISPLAY=1`
-//! transformă lipsa ecranului în eroare.
+//! Without a display (neither `DISPLAY` nor `WAYLAND_DISPLAY`), the tests are
+//! skipped, so `cargo test` works anywhere. In CI, `TVMAXE_REQUIRE_DISPLAY=1`
+//! turns a missing display into an error.
 
-#![allow(dead_code)] // fiecare fișier de test folosește doar o parte
+#![allow(dead_code)] // each test file uses only part of this
 
 use gtk::glib;
 use gtk::prelude::*;
@@ -20,12 +20,12 @@ use std::time::{Duration, Instant};
 pub type TestResult = Result<(), String>;
 pub type TestFn = fn() -> Pin<Box<dyn Future<Output = TestResult>>>;
 
-/// Avertismentele și erorile GLib/GTK din timpul unui test.
+/// GLib/GTK warnings and errors raised during a test.
 static WARNINGS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// Avertismente care țin de mediul de test, nu de aplicație.
+/// Warnings caused by the test environment, not by the application.
 const IGNORED_WARNINGS: &[&str] = &[
-    // Fără sesiune D-Bus (Xvfb, weston headless): accesibilitate și portaluri.
+    // No D-Bus session (Xvfb, headless Weston): accessibility and portals.
     "AT-SPI",
     "org.a11y",
     "org.freedesktop.portal",
@@ -33,30 +33,30 @@ const IGNORED_WARNINGS: &[&str] = &[
     "Failed to open display", // tratat separat
 ];
 
-/// Rulează testele și iese cu codul potrivit. `name` apare în mesaje.
+/// Runs the tests and exits with the right code. `suite` appears in the messages.
 pub fn run(suite: &str, tests: &[(&str, TestFn)]) {
     capture_warnings();
-    // Testele compară texte din interfață: mereu în engleză, oricare ar fi
-    // limba sistemului (traducerile au testul lor, `translations.rs`).
+    // The tests compare interface texts: always English, whatever the system
+    // language (the translations have their own test, `translations.rs`).
     assert!(tvmaxe_core::i18n::force_language(
         tvmaxe_core::i18n::Language::English
     ));
     if !has_display() {
         if std::env::var_os("TVMAXE_REQUIRE_DISPLAY").is_some() {
-            eprintln!("{suite}: TVMAXE_REQUIRE_DISPLAY e setat, dar nu există ecran");
+            eprintln!("{suite}: TVMAXE_REQUIRE_DISPLAY is set, but there is no display");
             std::process::exit(1);
         }
-        println!("{suite}: fără ecran (DISPLAY / WAYLAND_DISPLAY), teste sărite");
+        println!("{suite}: no display (DISPLAY / WAYLAND_DISPLAY), tests skipped");
         return;
     }
     if let Err(e) = gtk::init() {
-        eprintln!("{suite}: GTK nu pornește: {e}");
+        eprintln!("{suite}: GTK does not start: {e}");
         std::process::exit(1);
     }
     let backend = gtk::gdk::Display::default()
         .map(|d| d.type_().name().to_string())
         .unwrap_or_default();
-    println!("\n{suite}: {} teste ({backend})", tests.len());
+    println!("\n{suite}: {} tests ({backend})", tests.len());
 
     let filter: Vec<String> = std::env::args()
         .skip(1)
@@ -75,10 +75,7 @@ pub fn run(suite: &str, tests: &[(&str, TestFn)]) {
         let mut result = ctx.block_on(test());
         let warnings = std::mem::take(&mut *WARNINGS.lock().unwrap());
         if result.is_ok() && !warnings.is_empty() {
-            result = Err(format!(
-                "avertismente GTK:\n    {}",
-                warnings.join("\n    ")
-            ));
+            result = Err(format!("GTK warnings:\n    {}", warnings.join("\n    ")));
         }
         match result {
             Ok(()) => println!(
@@ -86,13 +83,13 @@ pub fn run(suite: &str, tests: &[(&str, TestFn)]) {
                 started.elapsed().as_secs_f64()
             ),
             Err(e) => {
-                println!("test {name} ... EȘUAT\n    {e}");
+                println!("test {name} ... FAILED\n    {e}");
                 failed.push(*name);
             }
         }
     }
     println!(
-        "\n{suite}: {} trecute, {} eșuate",
+        "\n{suite}: {} passed, {} failed",
         ran - failed.len(),
         failed.len()
     );
@@ -107,8 +104,8 @@ fn has_display() -> bool {
         .any(|v| std::env::var_os(v).is_some_and(|s| !s.is_empty()))
 }
 
-/// Reține avertismentele și erorile (ex. „A window is shown after it has been
-/// destroyed”): un test care le produce e considerat eșuat.
+/// Records warnings and errors (e.g. "A window is shown after it has been
+/// destroyed"): a test that produces them is considered failed.
 fn capture_warnings() {
     glib::log_set_writer_func(|level, fields| {
         if matches!(
@@ -132,12 +129,12 @@ fn capture_warnings() {
     });
 }
 
-/// Așteaptă (fără să blocheze bucla GTK) până când `cond` devine adevărată.
+/// Waits (without blocking the GTK loop) until `cond` becomes true.
 pub async fn wait_until(what: &str, timeout: Duration, cond: impl Fn() -> bool) -> TestResult {
     let start = Instant::now();
     while !cond() {
         if start.elapsed() > timeout {
-            return Err(format!("timp expirat ({}s): {what}", timeout.as_secs()));
+            return Err(format!("timed out ({}s): {what}", timeout.as_secs()));
         }
         glib::timeout_future(Duration::from_millis(50)).await;
     }
@@ -148,7 +145,7 @@ pub async fn sleep(ms: u64) {
     glib::timeout_future(Duration::from_millis(ms)).await;
 }
 
-/// `assert!` care întoarce eroare în loc să oprească tot procesul.
+/// An `assert!` that returns an error instead of aborting the whole process.
 #[macro_export]
 macro_rules! check {
     ($cond:expr, $($msg:tt)+) => {
@@ -159,15 +156,15 @@ macro_rules! check {
     };
 }
 
-/// Sursă video de test a mpv (filtrul lavfi din FFmpeg): bare de culoare,
-/// fără fișiere și fără rețea.
+/// mpv test video source (FFmpeg's lavfi filter): colour bars,
+/// no files and no network.
 pub const TEST_VIDEO: &str = "av://lavfi:smptebars=size=320x240:rate=25:duration=600";
-/// Ton de 440 Hz, pentru radio.
+/// 440 Hz tone, for radio.
 pub const TEST_AUDIO: &str = "av://lavfi:sine=frequency=440:duration=600";
-/// Port pe care nu ascultă nimic: conexiune refuzată imediat.
+/// A port nothing listens on: connection refused immediately.
 pub const DEAD_URL: &str = "http://127.0.0.1:9/mort.m3u8";
 
-/// Director temporar unic, șters la final.
+/// Unique temporary directory, deleted at the end.
 pub struct TempDir(pub std::path::PathBuf);
 
 impl TempDir {

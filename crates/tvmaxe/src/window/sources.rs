@@ -1,4 +1,4 @@
-//! Abonamente, canale și logo-uri.
+//! Subscriptions, channels and logos.
 
 use super::MainWindow;
 use crate::channel_list::ChannelRow;
@@ -9,7 +9,7 @@ use tvmaxe_core::i18n::{fill, tr, trn};
 use tvmaxe_core::net;
 
 impl MainWindow {
-    /// Recitește abonamentele și canalele din bază.
+    /// Rereads the subscriptions and channels from the database.
     pub fn reload(&self) {
         let db = self.db.borrow();
         let subs = match db.subscriptions() {
@@ -66,8 +66,8 @@ impl MainWindow {
         }
     }
 
-    /// Actualizează abonamentele (toate cele active dacă `ids` e `None`),
-    /// apoi descarcă logo-urile lipsă. Totul pe fire separate.
+    /// Updates the subscriptions (all enabled ones if `ids` is `None`),
+    /// then downloads the missing logos. Everything on worker threads.
     pub fn refresh_subscriptions(self: &Rc<Self>, ids: Option<Vec<i64>>) {
         let ids: Vec<(i64, String)> = {
             let subs = self.db.borrow().subscriptions().unwrap_or_default();
@@ -87,7 +87,7 @@ impl MainWindow {
             let total = ids.len();
             let mut failed = Vec::new();
             for (i, (id, name)) in ids.into_iter().enumerate() {
-                // Progresul stă sub listă (ca în TV-Maxe), nu peste starea redării.
+                // Progress goes under the list (like TV-Maxe), not over the playback status.
                 this.list_status.set_label(&fill(
                     tr("Updating “%1” (%2/%3)…"),
                     &[&name, &(i + 1), &total],
@@ -112,10 +112,10 @@ impl MainWindow {
         });
     }
 
-    // ---------- Logo-uri la cerere ----------
+    // ---------- Logos on demand ----------
 
-    /// Un rând afișat are nevoie de logo. Cererile se deduplică; cele mai
-    /// recente (rândurile tocmai derulate în vizor) se descarcă primele.
+    /// A visible row needs a logo. Requests are deduplicated; the most
+    /// recent ones (rows just scrolled into view) are downloaded first.
     pub(super) fn request_logo(self: &Rc<Self>, url: &str) {
         if !self.settings.borrow().download_logos
             || !self.logo_seen.borrow_mut().insert(url.to_string())
@@ -173,7 +173,7 @@ impl MainWindow {
         self.reload();
     }
 
-    /// Prima pornire: preia lista locală a vechiului TV-Maxe (`~/.tvmaxe/userlist.db`).
+    /// First start: imports the old TV-Maxe local list (`~/.tvmaxe/userlist.db`).
     pub(super) fn import_legacy_userlist(&self) {
         let db = self.db.borrow();
         if db.setting::<bool>("legacy_import_done").unwrap_or(false) {
@@ -199,7 +199,7 @@ impl MainWindow {
         }
     }
 
-    /// Selectează ultimul canal folosit. Întoarce `true` dacă l-a găsit.
+    /// Selects the last channel used. Returns `true` if it was found.
     pub(super) fn restore_last_channel(&self) -> bool {
         let Some(url) = self.db.borrow().setting::<String>("last_channel") else {
             return false;

@@ -1,4 +1,4 @@
-//! Listele TV-Maxe (`.db`), compatibile cu TV-Maxe 0.x și TV-Maxe NG:
+//! TV-Maxe lists (`.db`), compatible with TV-Maxe 0.x and TV-Maxe NG:
 //!
 //! ```sql
 //! info(name, version, author, url, epgurl)
@@ -6,8 +6,8 @@
 //! radio_channels(id, icon, name, streamurls, params)
 //! ```
 //!
-//! `icon` e PNG codat base64 (TV-Maxe 0.x) sau blob brut (NG); `streamurls`
-//! e un array JSON de URL-uri, încercate în ordine.
+//! `icon` is a base64-encoded PNG (TV-Maxe 0.x) or a raw blob (NG); `streamurls`
+//! is a JSON array of URLs, tried in order.
 
 use super::non_empty;
 use crate::{Channel, ChannelList, Error, Kind, Logo, Result};
@@ -24,7 +24,7 @@ pub fn parse_tvmaxe_db_file(path: &Path) -> Result<ChannelList> {
     read(&conn)
 }
 
-/// Listele descărcate vin ca octeți; SQLite are nevoie de un fișier.
+/// Downloaded lists arrive as bytes; SQLite needs a file.
 pub(super) fn parse_tvmaxe_db_bytes(data: &[u8]) -> Result<ChannelList> {
     let temp = create_temp_db(data)?;
     parse_tvmaxe_db_file(&temp.path)
@@ -150,7 +150,7 @@ fn text(row: &Row, col: &str) -> Option<String> {
     }
 }
 
-/// `["url1","url2"]`, iar ca rezervă un singur URL simplu.
+/// `["url1","url2"]`, with a single plain URL as a fallback.
 fn parse_urls(s: &str) -> Vec<String> {
     match serde_json::from_str::<Vec<String>>(s) {
         Ok(v) => v.into_iter().filter_map(|u| non_empty(&u)).collect(),
@@ -185,7 +185,7 @@ fn is_image(b: &[u8]) -> bool {
     b.starts_with(b"\x89PNG") || b.starts_with(b"\xff\xd8\xff") || b.starts_with(b"GIF8")
 }
 
-/// Scrie o listă în formatul TV-Maxe (icon base64, ca în TV-Maxe 0.x).
+/// Writes a list in the TV-Maxe format (base64 icon, like TV-Maxe 0.x).
 pub fn write_tvmaxe_db(path: &Path, list: &ChannelList) -> Result<()> {
     if path.exists() {
         std::fs::remove_file(path)?;
@@ -239,7 +239,7 @@ mod tests {
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nfake";
 
-    /// Cale temporară unică (testele rulează în paralel).
+    /// Unique temporary path (tests run in parallel).
     fn tmp(name: &str) -> std::path::PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
         std::env::temp_dir().join(format!(
@@ -249,7 +249,7 @@ mod tests {
         ))
     }
 
-    /// Listă construită exact ca TV-Maxe 0.x: icon base64 ca text, streamurls JSON.
+    /// A list built exactly like TV-Maxe 0.x: base64 icon as text, JSON streamurls.
     fn original_style_db() -> Vec<u8> {
         let p = tmp("orig.db");
         let c = Connection::open(&p).unwrap();

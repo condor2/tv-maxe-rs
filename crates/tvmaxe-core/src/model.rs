@@ -1,4 +1,4 @@
-/// Tipul canalului — TV-Maxe ține TV și radio în liste separate.
+/// Channel kind — TV-Maxe keeps TV and radio in separate lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     Tv,
@@ -22,7 +22,7 @@ impl Kind {
     }
 }
 
-/// Logo-ul unui canal: inclus în listă (TV-Maxe .db) sau de descărcat (M3U).
+/// A channel logo: embedded in the list (TV-Maxe .db) or to be downloaded (M3U).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Logo {
     #[default]
@@ -31,22 +31,22 @@ pub enum Logo {
     Embedded(Vec<u8>),
 }
 
-/// Un canal așa cum vine dintr-o listă, înainte de a fi salvat.
+/// A channel as it comes from a list, before it is stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Channel {
     pub kind: Kind,
     pub name: String,
-    /// URL-uri în ordinea preferinței; următorul e încercat dacă primul cade.
+    /// URLs in order of preference; the next one is tried if the first fails.
     pub urls: Vec<String>,
     pub group: Option<String>,
-    /// Identificator EPG (`tvg-id` în M3U, `guide` în TV-Maxe).
+    /// EPG identifier (`tvg-id` in M3U, `guide` in TV-Maxe).
     pub guide_id: Option<String>,
     pub logo: Logo,
-    /// Antete HTTP cerute de unele servere (iptv-org le declară per canal).
+    /// HTTP headers required by some servers (iptv-org declares them per channel).
     pub http: StreamOptions,
 }
 
-/// Opțiuni de rețea per canal.
+/// Per-channel network options.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StreamOptions {
     pub referrer: Option<String>,
@@ -67,10 +67,10 @@ impl Channel {
     }
 }
 
-/// O listă de canale parsată (un abonament).
+/// A parsed channel list (one subscription).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ChannelList {
-    /// Numele declarat în listă (`info.name` la TV-Maxe).
+    /// The name declared in the list (`info.name` in TV-Maxe).
     pub name: Option<String>,
     pub epg_url: Option<String>,
     pub channels: Vec<Channel>,

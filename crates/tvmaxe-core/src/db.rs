@@ -1,8 +1,8 @@
-//! Baza de date a aplicației (`~/.local/share/tvmaxe/tvmaxe.db`).
+//! The application database (`~/.local/share/tvmaxe/tvmaxe.db`).
 //!
-//! Ține abonamentele, canalele lor (copie locală, deci aplicația pornește
-//! și fără internet), cache-ul de logo-uri și setările.
-//! Fiecare fir de execuție își deschide propria conexiune (WAL).
+//! Holds the subscriptions, their channels (a local copy, so the application
+//! also starts without internet), the logo cache and the settings.
+//! Every thread opens its own connection (WAL).
 
 use crate::epg::{Guide, Programme, Wanted, normalize_name};
 use crate::{Channel, ChannelList, Error, Kind, Logo, Result, StreamOptions};
@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-/// URL-ul rezervat listei locale („My channels” / „Canalele mele”).
+/// The URL reserved for the local list ("My channels").
 pub const LOCAL_URL: &str = "local:";
 
 const SCHEMA_VERSION: i64 = 3;
@@ -40,7 +40,7 @@ CREATE INDEX epg_programmes_by_channel ON epg_programmes(channel, start);
 CREATE INDEX epg_programmes_by_source ON epg_programmes(source);
 ";
 
-/// Versiunea 3: antete HTTP per canal (referrer, User-Agent).
+/// Version 3: per-channel HTTP headers (referrer, User-Agent).
 const SCHEMA_V3: &str = "
 ALTER TABLE channels ADD COLUMN referrer TEXT;
 ALTER TABLE channels ADD COLUMN user_agent TEXT;
@@ -66,12 +66,12 @@ CREATE TABLE channels (
     grp             TEXT,
     guide_id        TEXT,
     logo_url        TEXT,
-    logo            BLOB                -- logo inclus în listă
+    logo            BLOB                -- logo embedded in the list
 );
 CREATE INDEX channels_by_sub ON channels(subscription_id, kind, position);
 CREATE TABLE logos (
     url        TEXT PRIMARY KEY,
-    data       BLOB,                    -- NULL = descărcare eșuată, nu reîncerca
+    data       BLOB,                    -- NULL = download failed, do not retry
     fetched_at INTEGER NOT NULL
 );
 CREATE TABLE settings (
@@ -97,8 +97,8 @@ impl Subscription {
         self.url == LOCAL_URL
     }
 
-    /// Numele afișat: lista locală are nume tradus („My channels” / „Canalele
-    /// mele”), indiferent de limba în care a fost creată baza.
+    /// Display name: the local list gets a translated name ("My channels"),
+    /// whatever language the database was created in.
     pub fn display_name(&self) -> &str {
         if self.is_local() {
             crate::i18n::tr("My channels")
@@ -108,7 +108,7 @@ impl Subscription {
     }
 }
 
-/// Un canal salvat, gata de afișat.
+/// A stored channel, ready to show.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredChannel {
     pub id: i64,
@@ -117,13 +117,13 @@ pub struct StoredChannel {
     pub name: String,
     pub urls: Vec<String>,
     pub group: Option<String>,
-    /// `tvg-id` (M3U) sau `guide` (TV-Maxe): cheia pentru ghidul TV.
+    /// `tvg-id` (M3U) or `guide` (TV-Maxe): the key for the TV guide.
     pub guide_id: Option<String>,
-    /// Logo inclus în listă sau descărcat anterior.
+    /// Logo embedded in the list or downloaded earlier.
     pub logo: Option<Vec<u8>>,
-    /// De unde se poate descărca logo-ul, dacă nu e încă în bază.
+    /// Where the logo can be downloaded from, if it is not in the database yet.
     pub logo_url: Option<String>,
-    /// Descărcarea logo-ului a eșuat deja (nu se reîncearcă).
+    /// Downloading the logo already failed (not retried).
     pub logo_failed: bool,
     pub http: StreamOptions,
     pub is_local: bool,
@@ -150,7 +150,7 @@ impl Database {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", true)?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-        // Migrări incrementale: o bază veche primește doar ce îi lipsește.
+        // Incremental migrations: an old database only gets what it is missing.
         if version < 1 {
             conn.execute_batch(&format!("BEGIN; {SCHEMA} PRAGMA user_version = 1; COMMIT;"))?;
         }
@@ -164,7 +164,7 @@ impl Database {
                 "BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"
             ))?;
         }
-        const { assert!(SCHEMA_VERSION == 3, "adaugă migrarea pentru noua versiune") };
+        const { assert!(SCHEMA_VERSION == 3, "add the migration for the new version") };
         Ok(Self { conn })
     }
 
@@ -202,7 +202,7 @@ impl Database {
             .optional()?)
     }
 
-    /// Adaugă (sau reactivează) un abonament. Întoarce id-ul lui.
+    /// Adds (or re-enables) a subscription. Returns its id.
     pub fn add_subscription(&self, name: &str, url: &str) -> Result<i64> {
         Ok(self.conn.query_row(
             "INSERT INTO subscriptions (name, url) VALUES (?1, ?2)
@@ -235,7 +235,7 @@ impl Database {
         Ok(())
     }
 
-    /// Înlocuiește canalele unui abonament cu conținutul proaspăt descărcat.
+    /// Replaces a subscription's channels with the freshly downloaded content.
     pub fn replace_channels(&mut self, sub_id: i64, list: &ChannelList) -> Result<usize> {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM channels WHERE subscription_id = ?1", [sub_id])?;
@@ -267,8 +267,8 @@ impl Database {
                 ])?;
             }
         }
-        // Numele implicit (= URL-ul) e înlocuit cu cel declarat în listă
-        // sau, dacă lista nu are nume, cu numele fișierului.
+        // The default name (= the URL) is replaced with the one declared in the list
+        // or, if the list has no name, with the file name.
         let url: String = tx.query_row(
             "SELECT url FROM subscriptions WHERE id = ?1",
             [sub_id],
@@ -286,7 +286,7 @@ impl Database {
         Ok(list.channels.len())
     }
 
-    // ---------- Lista locală ----------
+    // ---------- Local list ----------
 
     pub fn local_list_id(&self) -> Result<i64> {
         self.add_subscription("My channels", LOCAL_URL)
@@ -310,9 +310,9 @@ impl Database {
         )?)
     }
 
-    /// Modifică un canal din lista locală (nume, tip, URL-uri). Canalele din
-    /// abonamente nu se modifică: s-ar pierde la următoarea actualizare.
-    /// Întoarce `false` dacă `id` nu e un canal local.
+    /// Changes a channel in the local list (name, type, URLs). Subscription
+    /// channels are not changed: the next update would overwrite them.
+    /// Returns `false` if `id` is not a local channel.
     pub fn update_local_channel(
         &self,
         id: i64,
@@ -336,7 +336,7 @@ impl Database {
         Ok(n > 0)
     }
 
-    /// Șterge un canal — doar din lista locală; abonamentele se rescriu la actualizare.
+    /// Deletes a channel — only from the local list; subscriptions are rewritten on update.
     pub fn delete_local_channel(&self, id: i64) -> Result<bool> {
         let n = self.conn.execute(
             "DELETE FROM channels WHERE id = ?1
@@ -346,7 +346,7 @@ impl Database {
         Ok(n > 0)
     }
 
-    /// Conținutul unui abonament ca listă (pentru export TV-Maxe `.db`).
+    /// A subscription's content as a list (for the TV-Maxe `.db` export).
     pub fn export_list(&self, sub_id: i64) -> Result<ChannelList> {
         let (name, epg_url): (String, Option<String>) = self.conn.query_row(
             "SELECT name, epg_url FROM subscriptions WHERE id = ?1",
@@ -388,9 +388,9 @@ impl Database {
         })
     }
 
-    // ---------- Canale ----------
+    // ---------- Channels ----------
 
-    /// Canalele de un anumit tip din abonamentele active, în ordinea listelor.
+    /// Channels of one kind from the enabled subscriptions, in list order.
     pub fn channels(&self, kind: Kind) -> Result<Vec<StoredChannel>> {
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.subscription_id, c.name, c.urls, c.grp,
@@ -426,7 +426,7 @@ impl Database {
 
     // ---------- Ghid TV (EPG) ----------
 
-    /// Adresele EPG declarate de abonamentele active (`url-tvg`, `epgurl`).
+    /// EPG addresses declared by the enabled subscriptions (`url-tvg`, `epgurl`).
     pub fn epg_source_urls(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT epg_url FROM subscriptions
@@ -436,7 +436,7 @@ impl Database {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Ce canale există în listele active, ca parserul să păstreze doar ce trebuie.
+    /// Which channels exist in the enabled lists, so the parser keeps only what is needed.
     pub fn epg_wanted(&self) -> Result<Wanted> {
         let mut stmt = self.conn.prepare(
             "SELECT c.guide_id, c.name FROM channels c
@@ -450,7 +450,7 @@ impl Database {
             let (id, name) = row?;
             if let Some(id) = id.filter(|i| !i.trim().is_empty()) {
                 let id = id.trim().to_lowercase();
-                // iptv-org: „DisneyChannel.ro@SD” — ghidul folosește „DisneyChannel.ro”.
+                // iptv-org: "DisneyChannel.ro@SD" — the guide uses "DisneyChannel.ro".
                 if let Some((base, _)) = id.split_once('@') {
                     w.ids.insert(base.to_string());
                 }
@@ -481,8 +481,8 @@ impl Database {
         Ok(())
     }
 
-    /// Înlocuiește tot ce venea dintr-o sursă EPG și șterge emisiunile
-    /// terminate de peste două zile (față de `now`).
+    /// Replaces everything that came from one EPG source and deletes programmes
+    /// that ended more than two days ago (relative to `now`).
     pub fn replace_epg(&mut self, url: &str, guide: &Guide, now: i64) -> Result<usize> {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM epg_channels WHERE source = ?1", [url])?;
@@ -516,7 +516,7 @@ impl Database {
         Ok(guide.programmes.len())
     }
 
-    /// Indexul pentru potrivirea canal ↔ ghid.
+    /// The index for matching channels to the guide.
     pub fn epg_index(&self) -> Result<EpgIndex> {
         let mut idx = EpgIndex::default();
         let mut stmt = self
@@ -535,7 +535,7 @@ impl Database {
         Ok(idx)
     }
 
-    /// Emisiunea curentă pe fiecare canal din ghid.
+    /// The current programme on every channel in the guide.
     pub fn epg_current(&self, now: i64) -> Result<HashMap<String, Programme>> {
         let mut stmt = self.conn.prepare(
             "SELECT channel, start, stop, title, descr FROM epg_programmes
@@ -549,9 +549,9 @@ impl Database {
         Ok(out)
     }
 
-    /// Emisiunile unui canal care se suprapun cu intervalul [from, to).
+    /// A channel's programmes that overlap the interval [from, to).
     pub fn epg_range(&self, channel: &str, from: i64, to: i64) -> Result<Vec<Programme>> {
-        // GROUP BY start: aceeași emisiune poate veni din mai multe surse.
+        // GROUP BY start: the same programme can come from several sources.
         let mut stmt = self.conn.prepare(
             "SELECT channel, start, max(stop), title, descr FROM epg_programmes
              WHERE channel = ?1 AND stop > ?2 AND start < ?3
@@ -561,7 +561,7 @@ impl Database {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// (acum, următoarea) pe un canal.
+    /// (now, next) on a channel.
     pub fn epg_now_next(
         &self,
         channel: &str,
@@ -578,7 +578,7 @@ impl Database {
 
     // ---------- Logo-uri ----------
 
-    /// URL-uri de logo încă necăutate, din abonamentele active.
+    /// Logo URLs not looked up yet, from the enabled subscriptions.
     pub fn missing_logo_urls(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT c.logo_url FROM channels c
@@ -598,7 +598,7 @@ impl Database {
         Ok(())
     }
 
-    // ---------- Setări ----------
+    // ---------- Settings ----------
 
     pub fn setting<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
         self.conn
@@ -629,8 +629,8 @@ fn programme_row(r: &rusqlite::Row) -> rusqlite::Result<Programme> {
     })
 }
 
-/// Leagă un canal din liste de id-ul lui din ghid: întâi după `tvg-id`,
-/// apoi după numele normalizat („Pro TV HD” ↔ „PRO TV”).
+/// Links a channel from the lists to its id in the guide: first by `tvg-id`,
+/// then by the normalised name ("Pro TV HD" ↔ "PRO TV").
 #[derive(Debug, Default, Clone)]
 pub struct EpgIndex {
     ids: HashSet<String>,
@@ -661,7 +661,7 @@ fn parse_urls(json: &str) -> Vec<String> {
     serde_json::from_str(json).unwrap_or_default()
 }
 
-/// `https://x.ro/liste/Romania.db?v=2` → `Romania`
+/// `https://x.ro/lists/Romania.db?v=2` → `Romania`
 pub fn name_from_source(source: &str) -> String {
     let path = source.split(['?', '#']).next().unwrap_or(source);
     let (host, path) = match path.split_once("://") {
@@ -682,8 +682,8 @@ pub fn name_from_source(source: &str) -> String {
     }
 }
 
-/// URL-urile unui canal: fără spații, fără linii goale, fără duplicate,
-/// în ordinea dată. Cel puțin unul e obligatoriu.
+/// A channel's URLs: trimmed, without empty lines or duplicates,
+/// in the given order. At least one is required.
 fn clean_urls(urls: &[String]) -> Result<Vec<&str>> {
     let mut clean = Vec::new();
     for url in urls.iter().map(|u| u.trim()).filter(|u| !u.is_empty()) {
@@ -730,7 +730,7 @@ mod tests {
 
         assert_eq!(db.replace_channels(id, &sample()).unwrap(), 2);
         let s = &db.subscriptions().unwrap()[0];
-        assert_eq!(s.name, "Romania", "numele din listă înlocuiește URL-ul");
+        assert_eq!(s.name, "Romania", "the list name replaces the URL");
         assert_eq!((s.tv_count, s.radio_count), (1, 1));
         assert!(s.updated_at.is_some());
 
@@ -743,7 +743,7 @@ mod tests {
             Some(&b"\x89PNGx"[..])
         );
 
-        // A doua actualizare nu dublează canalele.
+        // A second update does not duplicate the channels.
         db.replace_channels(id, &sample()).unwrap();
         assert_eq!(db.channels(Kind::Tv).unwrap().len(), 1);
 
@@ -756,7 +756,7 @@ mod tests {
             .conn
             .query_row("SELECT count(*) FROM channels", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(n, 0, "canalele se șterg odată cu abonamentul");
+        assert_eq!(n, 0, "channels are deleted with the subscription");
     }
 
     #[test]
@@ -776,7 +776,7 @@ mod tests {
             Some(&b"img"[..])
         );
 
-        // Eșecurile sunt reținute ca să nu fie reîncercate la fiecare pornire.
+        // Failures are remembered so they are not retried on every start.
         db.store_logo("http://logo/tvr1.png", None).unwrap();
         assert!(db.missing_logo_urls().unwrap().is_empty());
     }
@@ -833,14 +833,14 @@ mod tests {
         assert_eq!(
             radio[0].urls,
             ["http://t/b", "http://t/a"],
-            "ordinea dată, fără duplicate"
+            "given order, no duplicates"
         );
         assert!(
             db.update_local_channel(id, Kind::Radio, "Nou", &["  ".into()])
                 .is_err()
         );
 
-        // Un canal dintr-un abonament nu se editează (s-ar pierde la actualizare).
+        // A subscription channel cannot be edited (the next update would overwrite it).
         let sub = db.add_subscription("Lista", "http://lista/x.m3u").unwrap();
         let list = ChannelList {
             channels: vec![Channel::new(Kind::Tv, "Din listă", "http://s/x")],
@@ -899,7 +899,7 @@ mod tests {
             db.replace_epg("http://epg/ro.xml.gz", &guide, now).unwrap(),
             3
         );
-        // Reîmprospătarea nu dublează.
+        // Refreshing does not duplicate.
         db.replace_epg("http://epg/ro.xml.gz", &guide, now).unwrap();
         assert!(db.epg_fetched_at("http://epg/ro.xml.gz").is_some());
 
@@ -929,7 +929,7 @@ mod tests {
         );
     }
 
-    /// Unix → format XMLTV în UTC.
+    /// Unix → XMLTV format in UTC.
     fn ts(t: i64) -> String {
         let (days, rem) = (t.div_euclid(86400), t.rem_euclid(86400));
         // civil_from_days (Hinnant)
@@ -1003,10 +1003,14 @@ mod tests {
             .unwrap();
         }
         let db = Database::open(&p).unwrap();
-        assert_eq!(db.subscriptions().unwrap()[0].name, "veche", "datele rămân");
+        assert_eq!(
+            db.subscriptions().unwrap()[0].name,
+            "veche",
+            "the data stays"
+        );
         assert!(
             db.epg_source_urls().unwrap().is_empty(),
-            "tabelele EPG există"
+            "the EPG tables exist"
         );
         let v: i64 = db
             .conn

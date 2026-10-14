@@ -1,8 +1,8 @@
-//! Formatele de liste acceptate, detectate după conținut (nu după extensie):
+//! Supported list formats, detected from the content (not the extension):
 //!
-//! * **TV-Maxe `.db`** — bază SQLite cu tabelele `info`, `tv_channels`, `radio_channels`
-//! * **TV-Maxe vechi** — text `|tvchannels||newchannel|nume|-|url|-|logo…`
-//! * **M3U / M3U8** — formatul IPTV obișnuit
+//! * **TV-Maxe `.db`** — SQLite database with the tables `info`, `tv_channels`, `radio_channels`
+//! * **Old TV-Maxe** — text `|tvchannels||newchannel|name|-|url|-|logo…`
+//! * **M3U / M3U8** — the usual IPTV format
 
 mod m3u;
 mod tvmaxe_db;

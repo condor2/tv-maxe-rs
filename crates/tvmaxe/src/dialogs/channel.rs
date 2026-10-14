@@ -1,4 +1,4 @@
-//! Adăugarea canalelor, exportul listei locale și dialogul Despre.
+//! Adding channels, exporting the local list and the About dialog.
 
 use crate::window::MainWindow;
 use gtk::glib;
@@ -7,20 +7,20 @@ use std::rc::Rc;
 use tvmaxe_core::i18n::{fill, tr};
 use tvmaxe_core::{Kind, StoredChannel};
 
-// ---------- Adaugă / editează canal ----------
+// ---------- Add / edit channel ----------
 
 pub fn add_channel(main: &Rc<MainWindow>) {
     channel_dialog(main, None);
 }
 
-/// Doar pentru „Canalele mele”; canalele din abonamente se rescriu la actualizare.
+/// Only for "My channels"; subscription channels are rewritten on update.
 pub fn edit_channel(main: &Rc<MainWindow>, channel: &StoredChannel) {
     if channel.is_local {
         channel_dialog(main, Some(channel));
     }
 }
 
-/// Același formular pentru adăugare (`existing = None`) și editare.
+/// The same form for adding (`existing = None`) and editing.
 fn channel_dialog(main: &Rc<MainWindow>, existing: Option<&StoredChannel>) {
     let edit_id = existing.map(|c| c.id);
     let name = gtk::Entry::builder()
@@ -197,7 +197,7 @@ fn parse_url_lines(text: &str) -> Vec<String> {
     urls
 }
 
-// ---------- Export listă locală ----------
+// ---------- Local list export ----------
 
 pub fn export_local(main: &Rc<MainWindow>) {
     let list = {

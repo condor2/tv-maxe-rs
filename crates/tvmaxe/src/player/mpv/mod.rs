@@ -1,5 +1,5 @@
-//! Backend libmpv: randare prin render API într-un `GtkGLArea`
-//! (funcționează identic pe Wayland și X11).
+//! libmpv backend: rendering through the render API into a `GtkGLArea`
+//! (works the same on Wayland and X11).
 
 mod gl;
 
@@ -14,32 +14,32 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use tvmaxe_core::i18n::{fill, tr};
 
-/// Peste această proporție de cadre pierdute trecem pe profilul rapid.
+/// Above this ratio of dropped frames we switch to the fast profile.
 const MAX_DROP_RATIO: f64 = 0.3;
 
 pub struct MpvBackend {
     area: gtk::GLArea,
     mpv: &'static Mpv,
     handler: RefCell<Option<BackendHandler>>,
-    /// Un URL e încărcat (pentru buffering și statistici de cadre).
+    /// A URL is loaded (for buffering and frame statistics).
     loaded: Cell<bool>,
     buffering: Cell<Option<i64>>,
-    /// Profilul „fast” al mpv (scalare biliniară) e activ.
+    /// mpv's "fast" profile (bilinear scaling) is active.
     fast: Rc<Cell<bool>>,
-    /// Alegerea din Preferințe.
+    /// The choice from Preferences.
     quality: Rc<Cell<VideoQuality>>,
-    /// User-Agent-ul din Preferințe (sau cel implicit).
+    /// The User-Agent from Preferences (or the default one).
     user_agent: RefCell<String>,
-    /// Ultima măsurare a cadrelor pierdute: (contor, moment).
+    /// Last dropped-frame measurement: (counter, instant).
     drops: Cell<Option<(i64, Instant)>>,
 }
 
 impl MpvBackend {
     pub fn new() -> anyhow::Result<Rc<Self>> {
-        // GTK aplică limba sistemului, inclusiv formatul numerelor (în română
-        // „1,5”). libmpv refuză să pornească dacă LC_NUMERIC nu e „C”, pentru că
-        // își citește opțiunile numerice cu punct zecimal.
-        // SAFETY: apelat din firul principal, înainte de a porni alte fire mpv.
+        // GTK applies the system language, including the number format (Romanian
+        // uses "1,5"). libmpv refuses to start if LC_NUMERIC is not "C", because
+        // it parses its numeric options with a decimal point.
+        // SAFETY: called from the main thread, before any other mpv thread starts.
         unsafe {
             libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr());
         }
@@ -59,7 +59,7 @@ impl MpvBackend {
             Ok(())
         })
         .map_err(|e| anyhow::anyhow!("{}", fill(tr("cannot initialise libmpv (%1)"), &[&e])))?;
-        // RenderContext<'a> împrumută Mpv; backend-ul trăiește cât aplicația.
+        // RenderContext<'a> borrows Mpv; the backend lives as long as the application.
         let mpv: &'static Mpv = Box::leak(Box::new(mpv));
 
         let area = gtk::GLArea::new();
@@ -73,7 +73,7 @@ impl MpvBackend {
         let quality: Rc<Cell<VideoQuality>> = Rc::default();
         let (redraw_tx, redraw_rx) = async_channel::bounded::<()>(1);
 
-        // Firul mpv cere redesenare → bucla principală GTK.
+        // The mpv thread asks for a redraw → GTK main loop.
         glib::spawn_future_local(glib::clone!(
             #[weak]
             area,
@@ -97,7 +97,7 @@ impl MpvBackend {
                     eprintln!("GLArea: {err}");
                     return;
                 }
-                // Pe GL emulat software, scalarea de calitate nu ține pasul cu 25 fps.
+                // On software-emulated GL, quality scaling cannot keep up with 25 fps.
                 match quality.get() {
                     VideoQuality::Fast => apply_fast_profile(mpv, &fast, "chosen in Preferences"),
                     VideoQuality::Auto if gl::is_software_renderer() => {
@@ -131,13 +131,13 @@ impl MpvBackend {
             move |area| {
                 area.make_current();
                 if let Some(mut ctx) = render.borrow_mut().take() {
-                    // libmpv2 eliberează callback-ul *înainte* de
-                    // mpv_render_context_free, timp în care firul „vo” al mpv
-                    // îl mai poate apela (use-after-free → crash la închiderea
-                    // ferestrei). Îl înlocuim întâi cu o închidere fără captură:
-                    // mpv nu mai cheamă vechiul callback după înlocuire, iar
-                    // noul are dimensiune zero, deci apelul lui nu citește
-                    // memorie eliberată.
+                    // libmpv2 frees the callback *before*
+                    // mpv_render_context_free, while mpv's "vo" thread
+                    // can still call it (use-after-free → crash when the
+                    // window closes). Replace it first with a non-capturing
+                    // closure: mpv no longer calls the old callback after the
+                    // replacement, and the new one is zero-sized, so calling
+                    // it reads no freed memory.
                     ctx.set_update_callback(|| {});
                     drop(ctx);
                 }
@@ -184,7 +184,7 @@ impl MpvBackend {
         }
     }
 
-    /// Evenimentele mpv, citite fără blocare din bucla principală.
+    /// mpv events, read without blocking from the main loop.
     fn spawn_event_poll(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -193,11 +193,11 @@ impl MpvBackend {
             };
             while let Some(ev) = b.mpv.wait_event(0.0) {
                 let out = match ev {
-                    // Erorile de la EndFile ajung aici ca Err.
+                    // Errors from EndFile arrive here as Err.
                     Err(e) => Some(BackendEvent::Failed(describe_error(&e))),
                     Ok(Event::StartFile) => Some(BackendEvent::Connecting),
                     Ok(Event::PlaybackRestart) => Some(BackendEvent::Playing),
-                    // 0 = sfârșit de fișier: stream-ul live s-a închis.
+                    // 0 = end of file: the live stream closed.
                     Ok(Event::EndFile(0)) => Some(BackendEvent::Ended),
                     Ok(Event::Shutdown) => return glib::ControlFlow::Break,
                     Ok(_) => None,
@@ -233,8 +233,8 @@ impl MpvBackend {
         }
     }
 
-    /// Dacă sistemul nu face față (mpv aruncă multe cadre), trecem pe profilul
-    /// rapid, ca să nu rămână ecranul negru pe calculatoare slabe.
+    /// If the system cannot keep up (mpv drops many frames), switch to the fast
+    /// profile so the screen does not stay black on slow computers.
     fn check_frame_drops(&self) {
         if self.fast.get() || self.quality.get() != VideoQuality::Auto {
             return;
@@ -273,9 +273,9 @@ impl Backend for MpvBackend {
     }
 
     fn load(&self, url: &str, http: &StreamOptions) -> Result<(), String> {
-        // Setate înaintea fiecărui URL; un canal fără antete speciale revine la
-        // valorile din Preferințe. Referer-ul merge ca antet suplimentar, ca să
-        // nu fie trimis deloc (nici gol) când canalul nu-l cere.
+        // Set before every URL; a channel without special headers goes back to the
+        // Preferences values. The Referer goes as an extra header so it is not
+        // sent at all (not even empty) when the channel does not need it.
         let _ = self
             .mpv
             .command("change-list", &["http-header-fields", "clr", ""]);
@@ -335,8 +335,8 @@ impl Backend for MpvBackend {
         let _ = m.set_property("user-agent", ua);
         *self.user_agent.borrow_mut() = ua.to_string();
         self.quality.set(s.video_quality);
-        // Trecerea la „rapid” se poate face oricând; înapoi doar la repornire
-        // (profilul mpv nu are o variantă de anulare).
+        // Switching to "fast" works at any time; switching back only on restart
+        // (the mpv profile has no undo).
         if s.video_quality == VideoQuality::Fast {
             apply_fast_profile(m, &self.fast, "chosen in Preferences");
         }
@@ -354,7 +354,7 @@ fn apply_fast_profile(mpv: &Mpv, fast: &Cell<bool>, why: &str) {
     }
 }
 
-/// Coduri `mpv_error` (mpv/client.h) → mesaje pe înțeles.
+/// `mpv_error` codes (mpv/client.h) → readable messages.
 fn describe_error(e: &libmpv2::Error) -> String {
     match e {
         libmpv2::Error::Raw(code) => match *code {

@@ -1,9 +1,9 @@
-//! Teste de integrare pentru interfață: fereastra principală, ferestrele
-//! secundare (deschise și închise de mai multe ori, ca să nu revină bug-ul
-//! „A window is shown after it has been destroyed”), abonament dintr-un M3U
-//! local și redarea unui canal cu URL de rezervă.
+//! Integration tests for the interface: the main window, the secondary windows
+//! (opened and closed several times, so the "A window is shown after it has
+//! been destroyed" bug does not come back), a subscription from a local M3U
+//! and playing a channel with a fallback URL.
 //!
-//! Orice avertisment GTK apărut în timpul unui test îl face să eșueze.
+//! Any GTK warning during a test makes it fail.
 //!
 //! ```sh
 //! xvfb-run -a cargo test -p tvmaxe --test ui
@@ -27,27 +27,19 @@ fn main() {
     common::run(
         "ui",
         &[
-            ("fereastra_principala_porneste", || {
-                Box::pin(main_window_starts())
-            }),
-            ("abonament_m3u_local_si_redare", || {
+            ("main_window_starts", || Box::pin(main_window_starts())),
+            ("local_m3u_subscription_and_playback", || {
                 Box::pin(local_m3u_and_play())
             }),
-            // După testul de mai sus: „Ghid TV” are nevoie de un canal ales.
-            ("ferestrele_secundare_se_redeschid", || {
-                Box::pin(dialogs_reopen())
-            }),
-            ("lista_ascunsa_si_reafisata", || {
+            // After the test above: "TV guide" needs a selected channel.
+            ("dialogs_reopen_after_close", || Box::pin(dialogs_reopen())),
+            ("channel_list_hide_and_show", || {
                 Box::pin(toggle_channel_list())
             }),
-            ("alegerea_sursei", || Box::pin(choose_source())),
-            ("editarea_unui_canal_local", || {
-                Box::pin(edit_local_channel())
-            }),
-            // Ultimul: închide fereastra principală.
-            ("inchidere_in_timpul_redarii", || {
-                Box::pin(close_while_playing())
-            }),
+            ("choose_source", || Box::pin(choose_source())),
+            ("edit_local_channel", || Box::pin(edit_local_channel())),
+            // Last: closes the main window.
+            ("close_while_playing", || Box::pin(close_while_playing())),
         ],
     );
 }
@@ -62,8 +54,8 @@ thread_local! {
     static FIXTURE: RefCell<Option<Rc<Fixture>>> = const { RefCell::new(None) };
 }
 
-/// Aplicația și fereastra principală, create o singură dată, cu baza de date
-/// într-un director temporar (nu atinge datele utilizatorului).
+/// The application and the main window, created once, with the database
+/// in a temporary directory (the user's data is not touched).
 fn fixture() -> Result<Rc<Fixture>, String> {
     if let Some(f) = FIXTURE.with_borrow(|f| f.clone()) {
         return Ok(f);
@@ -75,7 +67,7 @@ fn fixture() -> Result<Rc<Fixture>, String> {
         .build();
     app.connect_startup(tvmaxe::setup_app);
     app.register(None::<&gio::Cancellable>)
-        .map_err(|e| format!("aplicația nu se înregistrează: {e}"))?;
+        .map_err(|e| format!("the application does not register: {e}"))?;
     let main = MainWindow::new(&app, dir.0.join("tvmaxe.db")).map_err(|e| format!("{e:#}"))?;
     main.window.present();
     let f = Rc::new(Fixture {
@@ -87,7 +79,7 @@ fn fixture() -> Result<Rc<Fixture>, String> {
     Ok(f)
 }
 
-/// Ferestrele vizibile, în afară de cea principală.
+/// The visible windows, except the main one.
 fn secondary_windows(main: &gtk::Window) -> Vec<gtk::Window> {
     let list = gtk::Window::toplevels();
     (0..list.n_items())
@@ -99,41 +91,37 @@ fn secondary_windows(main: &gtk::Window) -> Vec<gtk::Window> {
 async fn main_window_starts() -> TestResult {
     let f = fixture()?;
     let win = f.main.window.clone();
-    wait_until("fereastra principală afișată", TIMEOUT, || {
-        win.is_mapped()
-    })
-    .await?;
+    wait_until("main window shown", TIMEOUT, || win.is_mapped()).await?;
     check!(
         win.title().as_deref() == Some("TV-Maxe"),
-        "titlu: {:?}",
+        "title: {:?}",
         win.title()
     );
     check!(
         f.main.channel_count(Kind::Tv) == 0,
-        "baza nouă are canale TV"
+        "the new database has TV channels"
     );
     check!(
         win.application().is_some_and(|a| a.menubar().is_some()),
-        "meniul aplicației lipsește"
+        "the application menu is missing"
     );
-    // Fără canal ales, „Ghid TV” explică în bara de stare în loc să deschidă ceva.
+    // Without a selected channel, "TV guide" explains in the status bar instead of opening.
     WidgetExt::activate_action(&win, "win.guide", None).map_err(|e| e.to_string())?;
     glib::timeout_future(Duration::from_millis(200)).await;
     check!(
         secondary_windows(win.upcast_ref()).is_empty(),
-        "Ghid TV s-a deschis fără canal"
+        "TV guide opened without a channel"
     );
     check!(
         f.main.status_text().starts_with("Choose a channel"),
-        "starea: {:?}",
+        "status: {:?}",
         f.main.status_text()
     );
     Ok(())
 }
 
-/// Fiecare fereastră secundară: deschisă și închisă de 3 ori. A doua deschidere
-/// trebuie să meargă (fereastră ascunsă refolosită sau una nouă), fără
-/// avertismente GTK.
+/// Every secondary window: opened and closed 3 times. Opening it again must
+/// work (hidden window reused or a new one), without GTK warnings.
 async fn dialogs_reopen() -> TestResult {
     let f = fixture()?;
     let main: gtk::Window = f.main.window.clone().upcast();
@@ -147,7 +135,7 @@ async fn dialogs_reopen() -> TestResult {
         for round in 1..=3 {
             WidgetExt::activate_action(&f.main.window, &format!("win.{action}"), None)
                 .map_err(|e| format!("win.{action}: {e}"))?;
-            let what = format!("{action}: fereastra apare (runda {round})");
+            let what = format!("{action}: window appears (round {round})");
             wait_until(&what, TIMEOUT, || {
                 secondary_windows(&main).iter().any(|w| w.is_mapped())
             })
@@ -155,19 +143,19 @@ async fn dialogs_reopen() -> TestResult {
             let opened = secondary_windows(&main);
             check!(
                 opened.len() == 1,
-                "{action}: {} ferestre deschise în loc de 1",
+                "{action}: {} windows open instead of 1",
                 opened.len()
             );
             opened[0].close();
-            let what = format!("{action}: fereastra se închide (runda {round})");
+            let what = format!("{action}: window closes (round {round})");
             wait_until(&what, TIMEOUT, || secondary_windows(&main).is_empty()).await?;
         }
     }
     Ok(())
 }
 
-/// Un M3U de pe disc ca abonament: canalul TV are întâi un URL mort, apoi unul
-/// bun; grupul „Radio” trece canalul la tabul radio.
+/// An M3U from disk as a subscription: the TV channel has a dead URL first, then a
+/// good one; the "Radio" group moves the channel to the radio tab.
 async fn local_m3u_and_play() -> TestResult {
     let f = fixture()?;
     let dir = TempDir::new("m3u");
@@ -184,28 +172,28 @@ async fn local_m3u_and_play() -> TestResult {
     )
     .unwrap();
     f.main.add_subscription(path.to_str().unwrap());
-    wait_until("canalele din M3U în liste", TIMEOUT, || {
+    wait_until("M3U channels in the lists", TIMEOUT, || {
         f.main.channel_count(Kind::Tv) == 1 && f.main.channel_count(Kind::Radio) == 1
     })
     .await?;
 
     check!(f.main.play_channel_at(Kind::Tv, 0), "nu pot porni canalul");
-    wait_until("status “Playing: Canal test”", TIMEOUT, || {
+    wait_until("status \"Playing: Canal test\"", TIMEOUT, || {
         f.main.status_text() == "Playing: Canal test"
     })
     .await
-    .map_err(|e| format!("{e}; starea: {:?}", f.main.status_text()))?;
+    .map_err(|e| format!("{e}; status: {:?}", f.main.status_text()))?;
 
     f.main.player().stop();
     check!(
         f.main.status_text() == "Stopped",
-        "starea după Stop: {:?}",
+        "status after Stop: {:?}",
         f.main.status_text()
     );
     Ok(())
 }
 
-/// F9: lista de canale se ascunde și reapare.
+/// F9: the channel list hides and shows again.
 async fn toggle_channel_list() -> TestResult {
     let f = fixture()?;
     let state = || {
@@ -215,7 +203,7 @@ async fn toggle_channel_list() -> TestResult {
             .and_then(|a| a.state())
             .and_then(|s| s.get::<bool>())
     };
-    check!(state() == Some(true), "lista nu e vizibilă la pornire");
+    check!(state() == Some(true), "the list is not visible at startup");
     for expected in [false, true] {
         WidgetExt::activate_action(&f.main.window, "win.show-list", None)
             .map_err(|e| e.to_string())?;
@@ -225,32 +213,29 @@ async fn toggle_channel_list() -> TestResult {
     Ok(())
 }
 
-/// Închiderea ferestrei în timpul redării distruge zona video cât timp mpv încă
-/// desenează (aici era un use-after-free în callback-ul de redesenare din libmpv2).
+/// Closing the window during playback destroys the video area while mpv is still
+/// drawing (this was a use-after-free in libmpv2's redraw callback).
 async fn close_while_playing() -> TestResult {
     let f = fixture()?;
     check!(f.main.play_channel_at(Kind::Tv, 0), "nu pot porni canalul");
-    wait_until("redare înainte de închidere", TIMEOUT, || {
+    wait_until("playing before closing", TIMEOUT, || {
         f.main.status_text() == "Playing: Canal test"
     })
     .await?;
     glib::timeout_future(Duration::from_millis(500)).await;
     f.main.window.close();
     let win = f.main.window.clone();
-    wait_until("fereastra principală închisă", TIMEOUT, || {
-        !win.is_visible()
-    })
-    .await?;
-    // mpv mai rulează câteva cadre pe firul lui; un crash ar opri procesul aici.
+    wait_until("main window closed", TIMEOUT, || !win.is_visible()).await?;
+    // mpv still renders a few frames on its own thread; a crash would stop the process here.
     glib::timeout_future(Duration::from_millis(1500)).await;
     Ok(())
 }
 
-/// Click dreapta → Sursă: pornește direct sursa aleasă; dacă e moartă, trece
-/// la următoarea (aici: sursa 1 moartă → 2).
+/// Right-click → Source: plays the chosen source directly; if it is dead, moves
+/// on to the next one (here: source 1 dead → 2).
 async fn choose_source() -> TestResult {
     let f = fixture()?;
-    let id = f.main.channel_id_at(Kind::Tv, 0).ok_or("niciun canal TV")?;
+    let id = f.main.channel_id_at(Kind::Tv, 0).ok_or("no TV channel")?;
     for (chosen, expected) in [(1u32, 1usize), (0, 1)] {
         WidgetExt::activate_action(
             &f.main.window,
@@ -258,14 +243,14 @@ async fn choose_source() -> TestResult {
             Some(&(id, chosen).to_variant()),
         )
         .map_err(|e| e.to_string())?;
-        wait_until("redare de la sursa aleasă", TIMEOUT, || {
+        wait_until("playing from the chosen source", TIMEOUT, || {
             f.main.status_text() == "Playing: Canal test"
                 && f.main.player().source_index() == Some(expected)
         })
         .await
         .map_err(|e| {
             format!(
-                "{e}; sursa {chosen}: stare {:?}, index {:?}",
+                "{e}; source {chosen}: status {:?}, index {:?}",
                 f.main.status_text(),
                 f.main.player().source_index()
             )
@@ -275,7 +260,7 @@ async fn choose_source() -> TestResult {
     Ok(())
 }
 
-/// Toți descendenții unui widget de tipul `T`.
+/// All descendants of a widget of type `T`.
 fn descendants<T: IsA<gtk::Widget>>(root: &gtk::Widget) -> Vec<T> {
     let mut out = Vec::new();
     let mut child = root.first_child();
@@ -289,9 +274,9 @@ fn descendants<T: IsA<gtk::Widget>>(root: &gtk::Widget) -> Vec<T> {
     out
 }
 
-/// „Editează canalul…” pe un canal din „Canalele mele”: formularul vine
-/// completat, iar „Salvează” schimbă canalul (nu adaugă altul). Canalele din
-/// abonamente nu se pot edita.
+/// "Edit channel…" on a channel in "My channels": the form comes pre-filled,
+/// and "Save" changes the channel (it does not add another one). Subscription
+/// channels cannot be edited.
 async fn edit_local_channel() -> TestResult {
     let f = fixture()?;
     let main: gtk::Window = f.main.window.clone().upcast();
@@ -310,45 +295,45 @@ async fn edit_local_channel() -> TestResult {
 
     WidgetExt::activate_action(&f.main.window, "win.edit-channel", Some(&id.to_variant()))
         .map_err(|e| e.to_string())?;
-    wait_until("fereastra de editare", TIMEOUT, || {
+    wait_until("edit window", TIMEOUT, || {
         secondary_windows(&main).iter().any(|w| w.is_mapped())
     })
     .await?;
     let dialog = secondary_windows(&main).remove(0);
     check!(
         dialog.title().as_deref() == Some("Edit channel"),
-        "titlu: {:?}",
+        "title: {:?}",
         dialog.title()
     );
     let root: gtk::Widget = dialog.clone().upcast();
     let entry = descendants::<gtk::Entry>(&root)
         .into_iter()
         .next()
-        .ok_or("lipsește câmpul Nume")?;
-    check!(entry.text() == "Local vechi", "nume: {:?}", entry.text());
+        .ok_or("the Name field is missing")?;
+    check!(entry.text() == "Local vechi", "name: {:?}", entry.text());
     let view = descendants::<gtk::TextView>(&root)
         .into_iter()
         .next()
-        .ok_or("lipsește câmpul URL-uri")?;
+        .ok_or("the URLs field is missing")?;
     let b = view.buffer();
     let text = b.text(&b.start_iter(), &b.end_iter(), false);
-    check!(text == "http://a/1\nhttp://a/2", "URL-uri: {text:?}");
+    check!(text == "http://a/1\nhttp://a/2", "URLs: {text:?}");
 
     entry.set_text("Local nou");
     b.set_text("http://a/2\nhttp://a/3");
     let save = descendants::<gtk::Button>(&root)
         .into_iter()
         .find(|b| b.label().as_deref() == Some("Save"))
-        .ok_or("lipsește butonul Save")?;
+        .ok_or("the Save button is missing")?;
     save.emit_clicked();
-    wait_until("fereastra se închide", TIMEOUT, || {
+    wait_until("window closes", TIMEOUT, || {
         secondary_windows(&main).is_empty()
     })
     .await?;
 
     check!(
         f.main.channel_count(Kind::Tv) == tv_before,
-        "s-a adăugat un canal în plus"
+        "an extra channel was added"
     );
     let channels = f
         .main
@@ -359,19 +344,19 @@ async fn edit_local_channel() -> TestResult {
     let ch = channels
         .iter()
         .find(|c| c.id == id)
-        .ok_or("canalul a dispărut")?;
-    check!(ch.name == "Local nou", "nume salvat: {:?}", ch.name);
+        .ok_or("the channel disappeared")?;
+    check!(ch.name == "Local nou", "saved name: {:?}", ch.name);
     check!(
         ch.urls == ["http://a/2", "http://a/3"],
-        "URL-uri salvate: {:?}",
+        "saved URLs: {:?}",
         ch.urls
     );
 
-    // Un canal dintr-un abonament nu deschide formularul.
+    // A subscription channel does not open the form.
     let sub_id = channels
         .iter()
         .find(|c| !c.is_local)
-        .ok_or("niciun canal din abonament")?
+        .ok_or("no subscription channel")?
         .id;
     WidgetExt::activate_action(
         &f.main.window,
@@ -382,10 +367,10 @@ async fn edit_local_channel() -> TestResult {
     glib::timeout_future(Duration::from_millis(300)).await;
     check!(
         secondary_windows(&main).is_empty(),
-        "s-a deschis editarea pentru un canal din abonament"
+        "the edit form opened for a subscription channel"
     );
 
-    // Curățenie: testul următor închide fereastra în timpul redării canalului 0.
+    // Clean-up: the next test closes the window while channel 0 is playing.
     let _ = f.main.db.borrow().delete_local_channel(id);
     f.main.reload();
     Ok(())

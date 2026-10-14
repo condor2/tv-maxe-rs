@@ -7,19 +7,19 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Versiune fixă: un Rust nou aduce lint-uri clippy noi, care altfel ar pica
-  # CI-ul fără nicio schimbare în cod. Se actualizează intenționat, din când în când.
+  # Pinned: a new Rust release brings new clippy lints, which would otherwise
+  # fail CI without any change in the code. Bump it on purpose from time to time.
   RUST_TOOLCHAIN: "1.99.0"
   RUSTFLAGS: -D warnings
 
 jobs:
   check:
-    name: fmt, clippy, teste
+    name: fmt, clippy, tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Dependențe de sistem
+      - name: System dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgtk-4-dev libmpv-dev
@@ -37,15 +37,26 @@ jobs:
       - name: shellcheck
         run: shellcheck install.sh uninstall.sh scripts/*.sh
 
+      # Uploading through the GitHub web interface drops the executable bit,
+      # and then `./install.sh` fails for everyone who clones the repository.
+      - name: Scripts are executable
+        run: |
+          for f in install.sh uninstall.sh scripts/*.sh; do
+            if [ ! -x "$f" ]; then
+              echo "::error file=$f::$f is not executable; fix it with: git update-index --chmod=+x $f"
+              exit 1
+            fi
+          done
+
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # Testele de integrare (player, ui) se sar singure aici: nu există ecran.
+      # The integration tests (player, ui) skip themselves here: there is no display.
       - name: cargo test
         run: cargo test --workspace
 
   integration:
-    name: integrare (${{ matrix.display }})
+    name: integration (${{ matrix.display }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -54,12 +65,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Dependențe de sistem
+      - name: System dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libmpv-dev libgl1-mesa-dri xvfb xauth weston locales
-          # Pentru testul „porneste_sub_locale_non_c” (bug-ul LC_NUMERIC din mpv).
+          # For the starts_under_non_c_locale test (the mpv LC_NUMERIC bug).
           sudo locale-gen ro_RO.UTF-8
 
       - uses: dtolnay/rust-toolchain@master
@@ -70,18 +81,18 @@ jobs:
         with:
           key: integration
 
-      - name: Teste libmpv + GTK pe ${{ matrix.display }}
+      - name: libmpv + GTK tests on ${{ matrix.display }}
         env:
-          TVMAXE_TEST_CAPTURE: ${{ runner.temp }}/captura-video.png
+          TVMAXE_TEST_CAPTURE: ${{ runner.temp }}/video-capture.png
           TVMAXE_MPV_LOG: ${{ runner.temp }}/mpv.log
-        run: scripts/integration-tests.sh ${{ matrix.display }}
+        run: bash scripts/integration-tests.sh ${{ matrix.display }}
 
-      - name: Captura video și jurnalul mpv
+      - name: Video capture and mpv log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: integrare-${{ matrix.display }}
+          name: integration-${{ matrix.display }}
           path: |
-            ${{ runner.temp }}/captura-video.png
+            ${{ runner.temp }}/video-capture.png
             ${{ runner.temp }}/mpv.log
           if-no-files-found: ignore

@@ -5,7 +5,7 @@ members = ["crates/tvmaxe-core", "crates/tvmaxe"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-# Minimul cerut de gtk4 0.11 (și de let-chains, stabile din 1.88).
+# Minimum required by gtk4 0.11 (and by let-chains, stable since 1.88).
 rust-version = "1.92"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/condor2/tv-maxe-rs"

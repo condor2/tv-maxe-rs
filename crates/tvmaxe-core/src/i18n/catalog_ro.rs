@@ -1,5 +1,5 @@
-//! Catalogul românesc: (text englezesc din cod, traducere).
-//! Testul `translations` verifică să nu lipsească și să nu prisosească nimic.
+//! The Romanian catalog: (English text from the code, translation).
+//! The `translations` test checks that nothing is missing and nothing is left over.
 
 pub(super) const RO: &[(&str, &str)] = &[
     ("%1  ·  now", "%1  ·  acum"),
@@ -307,7 +307,7 @@ pub(super) const RO: &[(&str, &str)] = &[
     ),
 ];
 
-/// (forma de singular din cod, [1, 2–19, 20+]).
+/// (singular form from the code, [1, 2–19, 20+]).
 pub(super) const RO_PLURALS: &[(&str, [&str; 3])] = &[
     ("%n list", ["%n listă", "%n liste", "%n de liste"]),
     (

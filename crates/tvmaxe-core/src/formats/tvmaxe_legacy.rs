@@ -1,8 +1,8 @@
-//! Formatul text din primele versiuni TV-Maxe (folderul `subscriptions/`):
+//! The text format of the first TV-Maxe versions (the `subscriptions/` folder):
 //!
 //! ```text
-//! |tvchannels||newchannel|Nume|-|url|-|logo|-|id_epg|newchannel|…|endoftvchannels|
-//! |radiochannels||newchannel|Nume|-|url|-|logo|endofradiochannels|
+//! |tvchannels||newchannel|Name|-|url|-|logo|-|epg_id|newchannel|…|endoftvchannels|
+//! |radiochannels||newchannel|Name|-|url|-|logo|endofradiochannels|
 //! ```
 
 use super::non_empty;
@@ -14,7 +14,7 @@ pub fn parse_tvmaxe_legacy(data: &str) -> ChannelList {
         (Kind::Tv, "|tvchannels|", "|endoftvchannels|"),
         (Kind::Radio, "|radiochannels|", "|endofradiochannels|"),
     ] {
-        // Un fișier poate avea mai multe secțiuni de același fel.
+        // A file can have several sections of the same kind.
         for section in data.split(start).skip(1) {
             let body = section.split(end).next().unwrap_or("");
             for entry in body.split("|newchannel|").skip(1) {

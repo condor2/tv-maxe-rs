@@ -1,4 +1,4 @@
-//! Parser tolerant pentru M3U „extins”:
+//! Lenient parser for "extended" M3U:
 //!
 //! ```text
 //! #EXTM3U url-tvg="https://example.org/epg.xml"
@@ -6,7 +6,7 @@
 //! https://example.org/tvr1/index.m3u8
 //! ```
 //!
-//! Liniile neînțelese sunt ignorate, nu produc eroare.
+//! Lines that are not understood are ignored, not reported as errors.
 
 use super::non_empty;
 use crate::{Channel, ChannelList, Kind, Logo, StreamOptions};
@@ -35,8 +35,8 @@ pub fn parse_m3u(input: &str) -> ChannelList {
         } else if let Some(g) = line.strip_prefix("#EXTGRP:") {
             pending_group = non_empty(g);
         } else if line.starts_with('#') {
-            // #EXTVLCOPT:http-referrer=… / http-user-agent=… (stil VLC);
-            // restul (#KODIPROP etc.) e ignorat.
+            // #EXTVLCOPT:http-referrer=… / http-user-agent=… (VLC style);
+            // the rest (#KODIPROP etc.) is ignored.
             if let (Some(opt), Some(ch)) = (line.strip_prefix("#EXTVLCOPT:"), pending.as_mut())
                 && let Some((k, v)) = opt.split_once('=')
             {
@@ -47,8 +47,8 @@ pub fn parse_m3u(input: &str) -> ChannelList {
                 }
             }
         } else if let Some(ch) = pending.as_mut() {
-            // Mai multe URL-uri după același #EXTINF sunt variante ale
-            // aceluiași canal, încercate în ordinea din listă.
+            // Several URLs after the same #EXTINF are variants of the
+            // same channel, tried in list order.
             if !ch.urls.iter().any(|url| url.as_str() == line) {
                 ch.urls.push(line.to_string());
             }
@@ -115,8 +115,8 @@ fn parse_extinf(rest: &str) -> Channel {
     }
 }
 
-/// Prima virgulă din afara ghilimelelor separă atributele de nume.
-/// Numele poate conține la rândul lui virgule („Digi 24, HD”).
+/// The first comma outside quotes separates the attributes from the name.
+/// The name itself may contain commas ("Digi 24, HD").
 fn split_outside_quotes(s: &str) -> (&str, &str) {
     let mut in_quotes = false;
     for (i, c) in s.char_indices() {
@@ -129,7 +129,7 @@ fn split_outside_quotes(s: &str) -> (&str, &str) {
     (s, "")
 }
 
-/// `cheie="valoare"` și `cheie=valoare`; durata (`-1`) e ignorată.
+/// `key="value"` and `key=value`; the duration (`-1`) is ignored.
 fn parse_attrs(s: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let b = s.as_bytes();

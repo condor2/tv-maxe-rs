@@ -1,4 +1,4 @@
-//! Preferințele utilizatorului, salvate în tabelul `settings` din baza SQLite.
+//! User preferences, stored in the `settings` table of the SQLite database.
 
 use crate::player::{PlaybackSettings, VideoQuality};
 use tvmaxe_core::Database;
@@ -6,13 +6,13 @@ use tvmaxe_core::Database;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
     pub playback: PlaybackSettings,
-    /// Actualizează abonamentele la fiecare pornire (ca TV-Maxe).
+    /// Update the subscriptions on every start (like TV-Maxe).
     pub refresh_on_start: bool,
-    /// Descarcă logo-urile canalelor din liste M3U.
+    /// Download channel logos from M3U lists.
     pub download_logos: bool,
-    /// Pornește automat ultimul canal la deschiderea aplicației.
+    /// Play the last channel automatically when the application opens.
     pub autoplay_last: bool,
-    /// Surse XMLTV adăugate de utilizator, pe lângă cele declarate de liste.
+    /// XMLTV sources added by the user, besides the ones declared by the lists.
     pub extra_epg_urls: Vec<String>,
 }
 
@@ -28,7 +28,7 @@ impl Default for Settings {
     }
 }
 
-/// Limitele acceptate în Preferințe (și la citire, contra valorilor corupte).
+/// Limits accepted in Preferences (and when reading, against corrupt values).
 pub const CACHE_SECS: (u32, u32) = (2, 120);
 pub const TIMEOUT_SECS: (u32, u32) = (5, 120);
 
@@ -84,7 +84,7 @@ impl Settings {
     }
 }
 
-/// Câte o adresă pe linie; liniile goale și duplicatele sunt ignorate.
+/// One address per line; empty lines and duplicates are ignored.
 pub fn parse_url_lines(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {

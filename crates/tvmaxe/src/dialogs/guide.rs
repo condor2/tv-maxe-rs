@@ -1,4 +1,4 @@
-//! Fereastra ghidului TV.
+//! The TV guide window.
 
 use crate::window::MainWindow;
 use gtk::glib;
@@ -8,7 +8,7 @@ use tvmaxe_core::i18n::{fill, tr};
 
 // ---------- Ghid TV ----------
 
-/// Programul unui canal pe zile, ca fereastra „Program TV” din TV-Maxe.
+/// A channel's schedule by day, like the "TV programme" window of TV-Maxe.
 pub struct GuideDialog {
     window: gtk::Window,
     logo: gtk::Image,
@@ -17,7 +17,7 @@ pub struct GuideDialog {
     list: gtk::ListBox,
     stack: gtk::Stack,
     empty_hint: gtk::Label,
-    /// 0 = azi, -1 = ieri, 1 = mâine…
+    /// 0 = today, -1 = yesterday, 1 = tomorrow…
     day: std::cell::Cell<i32>,
     target: std::cell::RefCell<Option<crate::window::GuideTarget>>,
     main: Weak<MainWindow>,
@@ -268,7 +268,7 @@ impl GuideDialog {
             }
             self.list.append(&row);
         }
-        // Aduce în vizor emisiunea curentă după ce lista are dimensiuni.
+        // Scrolls the current programme into view once the list has a size.
         if let Some(row) = current_row {
             glib::idle_add_local_once(move || {
                 row.grab_focus();
@@ -277,9 +277,9 @@ impl GuideDialog {
     }
 }
 
-/// Începutul și sfârșitul zilei locale `offset` (0 = azi) și eticheta ei.
+/// Start and end of the local day `offset` (0 = today) and its label.
 fn day_bounds(offset: i32) -> (i64, i64, String) {
-    let now = glib::DateTime::now_local().expect("ora locală");
+    let now = glib::DateTime::now_local().expect("local time");
     let day = now.add_days(offset).unwrap_or(now);
     let start = glib::DateTime::from_local(day.year(), day.month(), day.day_of_month(), 0, 0, 0.0)
         .unwrap_or(day);

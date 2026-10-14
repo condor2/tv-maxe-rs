@@ -1,6 +1,6 @@
-//! TV-Maxe: aplicația GTK 4. Binarul (`main.rs`) doar apelează [`run`]; restul e
-//! bibliotecă pentru ca testele de integrare (`tests/`) să poată construi
-//! fereastra și player-ul.
+//! TV-Maxe: the GTK 4 application. The binary (`main.rs`) only calls [`run`]; the rest
+//! is a library so the integration tests (`tests/`) can build the window and
+//! the player.
 
 mod channel_list;
 mod dialogs;
@@ -21,7 +21,7 @@ thread_local! {
     static WINDOW: RefCell<Option<Rc<MainWindow>>> = const { RefCell::new(None) };
 }
 
-/// Pornește aplicația (bucla principală GTK).
+/// Starts the application (GTK main loop).
 pub fn run() -> glib::ExitCode {
     let app = gtk::Application::builder()
         .application_id(APP_ID)
@@ -36,7 +36,7 @@ pub fn run() -> glib::ExitCode {
         }
     });
 
-    // `tvmaxe lista.db`, `tvmaxe lista.m3u` sau `tvmaxe https://…` → abonament nou.
+    // `tvmaxe list.db`, `tvmaxe list.m3u` or `tvmaxe https://…` → new subscription.
     app.connect_open(|app, files, _| {
         let Some(w) = window(app) else { return };
         for f in files {
@@ -55,8 +55,8 @@ pub fn run() -> glib::ExitCode {
     app.run()
 }
 
-/// Meniul, acțiunile aplicației, scurtăturile și stilul. Rulează la `startup`;
-/// public pentru testele de integrare, care își construiesc singure aplicația.
+/// Menu, application actions, shortcuts and style. Runs on `startup`;
+/// public for the integration tests, which build the application themselves.
 #[doc(hidden)]
 pub fn setup_app(app: &gtk::Application) {
     app.set_menubar(Some(&menu_bar()));
@@ -64,7 +64,7 @@ pub fn setup_app(app: &gtk::Application) {
     let a = app.downgrade();
     quit.connect_activate(move |_, _| {
         if let Some(app) = a.upgrade() {
-            // Trece prin close-request, ca setările să fie salvate.
+            // Goes through close-request, so the settings are saved.
             app.windows().iter().for_each(|w| w.close());
         }
     });
@@ -103,7 +103,7 @@ fn window(app: &gtk::Application) -> Option<Rc<MainWindow>> {
     }
 }
 
-/// Pornită din meniu, aplicația n-are terminal: eroarea trebuie arătată într-o fereastră.
+/// Started from the menu, the application has no terminal: the error must be shown in a window.
 fn show_startup_error(app: &gtk::Application, detail: &str) {
     let guard = app.hold();
     let app = app.clone();

@@ -1,17 +1,17 @@
-//! Fereastra principală, după modelul TV-Maxe:
+//! The main window, modelled on TV-Maxe:
 //!
 //! ```text
-//! ┌ TV-Maxe  Vizualizare  Ajutor ───────────────────────────────┐
-//! │┌Canale TV│Canale radio┐ ┌─────────────────────────────────┐ │
-//! ││Listă de canale: [▾]  │ │                                 │ │
-//! ││[Caută canal       ]  │ │             video               │ │
-//! ││▣ TVR 1               │ │                                 │ │
-//! ││▣ Digi 24             │ └─────────────────────────────────┘ │
-//! ││…                     │  ▣ TVR 1   Generaliste · România    │
-//! │└──────────────────────┘  ▶ ■  00:12:31            ⛶  🔊     │
-//! │ 123 canale în 3 liste                                        │
+//! ┌ TV-Maxe  View  Help ────────────────────────────────────────┐
+//! │┌TV channels│Radio┐    ┌─────────────────────────────────┐ │
+//! ││Channel list: [▾]  │   │                                 │ │
+//! ││[Search channel  ]  │   │             video               │ │
+//! ││▣ TVR 1             │   │                                 │ │
+//! ││▣ Digi 24           │   └─────────────────────────────────┘ │
+//! ││…                   │    ▣ TVR 1   News · Romania           │
+//! │└────────────────────┘    ▶ ■  00:12:31            ⛶  🔊     │
+//! │ 123 TV channels in 3 lists                                   │
 //! ├──────────────────────────────────────────────────────────────┤
-//! │ Redare: TVR 1                                  [▬▬▬     ]   │
+//! │ Playing: TVR 1                                 [▬▬▬     ]   │
 //! └──────────────────────────────────────────────────────────────┘
 //! ```
 
@@ -32,7 +32,7 @@ use tvmaxe_core::i18n::{fill, tr};
 use tvmaxe_core::{Database, EpgIndex, Kind, net};
 
 struct Current {
-    /// id-ul canalului în bază (pentru editare și alegerea sursei).
+    /// The channel's database id (for editing and choosing the source).
     channel_id: i64,
     name: String,
     kind: Kind,
@@ -43,7 +43,7 @@ struct Current {
     http: StreamOptions,
 }
 
-/// Canalul pentru care se deschide fereastra „Ghid TV”.
+/// The channel the "TV guide" window opens for.
 #[derive(Clone)]
 pub struct GuideTarget {
     pub name: String,
@@ -90,7 +90,7 @@ pub struct MainWindow {
     connecting: Cell<bool>,
     busy: Cell<u32>,
     list_visible: Cell<bool>,
-    /// Dialogurile refolosibile (ascunse la închidere, nu distruse).
+    /// Reusable dialogs (hidden on close, not destroyed).
     pub subs_dialog: RefCell<Option<Rc<dialogs::SubscriptionsDialog>>>,
     settings: RefCell<Settings>,
     epg_index: RefCell<EpgIndex>,
@@ -113,7 +113,7 @@ impl MainWindow {
         })?;
         let player = Player::new()?;
 
-        // ---------- Stânga: taburi TV / Radio ----------
+        // ---------- Left: TV / Radio tabs ----------
         let tv = ChannelList::new(Kind::Tv);
         let radio = ChannelList::new(Kind::Radio);
         let notebook = gtk::Notebook::new();
@@ -157,9 +157,9 @@ impl MainWindow {
             .build();
         placeholder_content.append(&placeholder_image);
         placeholder_content.append(&placeholder_label);
-        // Acoperă toată zona video (fundal negru), ca la radio sau după Stop să nu
-        // rămână vizibil ultimul cadru al canalului anterior. Click-urile trec
-        // mai departe la video (dublu-click = ecran complet).
+        // Covers the whole video area (black background), so for radio or after Stop
+        // the last frame of the previous channel does not stay visible. Clicks go
+        // through to the video (double-click = fullscreen).
         let placeholder = gtk::Box::builder().can_target(false).build();
         placeholder.add_css_class("video-placeholder");
         placeholder.append(&placeholder_content);
@@ -170,7 +170,7 @@ impl MainWindow {
         video.add_overlay(&placeholder);
         video.set_vexpand(true);
 
-        // Informații despre canalul curent.
+        // Information about the current channel.
         let info_logo = gtk::Image::builder().pixel_size(32).build();
         let info_name = gtk::Label::builder()
             .xalign(0.0)
@@ -188,7 +188,7 @@ impl MainWindow {
             .build();
         info_text.append(&info_name);
         info_text.append(&info_detail);
-        // Ghidul TV pentru canalul curent: acum (cu progres) și următoarea emisiune.
+        // TV guide for the current channel: now (with progress) and the next programme.
         let epg_now = gtk::Label::builder()
             .xalign(0.0)
             .ellipsize(gtk::pango::EllipsizeMode::End)
@@ -230,7 +230,7 @@ impl MainWindow {
         info_bar.append(&info_text);
         info_bar.append(&epg_box);
 
-        // Bara de control: Play, Stop, timp, ecran complet, volum.
+        // Control bar: Play, Stop, time, fullscreen, volume.
         let play_btn = icon_button("media-playback-start-symbolic", tr("Play"));
         let stop_btn = icon_button("media-playback-stop-symbolic", tr("Stop"));
         let time_label = gtk::Label::new(Some("00:00:00"));
@@ -282,7 +282,7 @@ impl MainWindow {
             .vexpand(true)
             .build();
 
-        // ---------- Bara de stare ----------
+        // ---------- Status bar ----------
         let status_label = gtk::Label::builder()
             .xalign(0.0)
             .hexpand(true)
@@ -318,7 +318,7 @@ impl MainWindow {
             .child(&content)
             .build();
 
-        // Starea salvată.
+        // Saved state.
         window.set_default_size(
             db.setting("window_width").unwrap_or(1000),
             db.setting("window_height").unwrap_or(620),
@@ -386,8 +386,8 @@ impl MainWindow {
 
         let s = this.settings();
         if restored && s.autoplay_last {
-            // mpv are nevoie de zona video afișată (context OpenGL); fereastra
-            // încă nu e pe ecran aici, așa că pornim la prima afișare.
+            // mpv needs the video area on screen (OpenGL context); the window is
+            // not shown yet here, so playback starts on the first map.
             let done = Cell::new(false);
             let w = Rc::downgrade(&this);
             this.player.widget().connect_map(move |_| {
@@ -454,7 +454,7 @@ impl MainWindow {
             }
         });
 
-        // Dublu-click pe video → ecran complet.
+        // Double-click on the video → fullscreen.
         let dbl = gtk::GestureClick::new();
         let win = self.window.downgrade();
         dbl.connect_pressed(move |_, n, _, _| {
@@ -466,8 +466,8 @@ impl MainWindow {
         });
         self.player.widget().add_controller(dbl);
 
-        // Esc iese din ecran complet. Faza de captură: tasta ajunge aici înaintea
-        // widget-ului focalizat (care în ecran complet e ascuns).
+        // Esc leaves fullscreen. Capture phase: the key arrives here before the
+        // focused widget (which is hidden in fullscreen).
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let win = self.window.downgrade();
@@ -490,7 +490,7 @@ impl MainWindow {
             }
         });
 
-        // Ceasul de redare și animația barei de progres.
+        // Playback clock and progress bar animation.
         let w = Rc::downgrade(self);
         glib::timeout_add_local(Duration::from_millis(500), move || {
             let Some(w) = w.upgrade() else {
@@ -572,7 +572,7 @@ impl MainWindow {
         });
         self.window.add_action(&edit);
 
-        // (id canal, index sursă): pornește canalul de la sursa aleasă.
+        // (channel id, source index): plays the channel from the chosen source.
         let source = gio::SimpleAction::new(
             "play-source",
             Some(&<(i64, u32) as glib::variant::StaticVariantType>::static_variant_type()),
@@ -609,7 +609,7 @@ impl MainWindow {
         self.window.add_action(&show_list);
     }
 
-    // ---------- Liste ----------
+    // ---------- Lists ----------
 
     pub fn current_kind(&self) -> Kind {
         self.current_list().kind
@@ -623,13 +623,13 @@ impl MainWindow {
         }
     }
 
-    // ---------- Preferințe ----------
+    // ---------- Preferences ----------
 
     pub fn settings(&self) -> Settings {
         self.settings.borrow().clone()
     }
 
-    /// Salvează și aplică imediat noile preferințe.
+    /// Saves and applies the new preferences immediately.
     pub fn set_settings(self: &Rc<Self>, new: Settings) {
         let old = self.settings.replace(new.clone());
         if let Err(e) = new.save(&self.db.borrow()) {
@@ -646,13 +646,13 @@ impl MainWindow {
         }
     }
 
-    // ---------- Redare ----------
+    // ---------- Playback ----------
 
     fn play_row(&self, row: &ChannelRow) {
         self.play_row_from(row, 0);
     }
 
-    /// Pornește un canal de la sursa (URL-ul) `source`.
+    /// Plays a channel from source (URL) `source`.
     fn play_row_from(&self, row: &ChannelRow, source: usize) {
         let ch = &row.channel;
         let detail = match &ch.group {
@@ -740,7 +740,7 @@ impl MainWindow {
         self.update_now_playing();
     }
 
-    /// Panoul de informații, butonul Play și imaginea din zona video.
+    /// The info panel, the Play button and the picture in the video area.
     fn update_now_playing(&self) {
         let cur = self.current.borrow();
         let active = self.player.is_active();
@@ -775,7 +775,7 @@ impl MainWindow {
             None => self.info_bar.set_visible(false),
         }
 
-        // Imaginea din zona video: când nu rulează nimic sau la radio.
+        // The picture in the video area: when nothing is playing, or for radio.
         let show = !active || cur.as_ref().is_some_and(|c| c.kind == Kind::Radio);
         self.placeholder.set_visible(show);
         if show {
@@ -804,8 +804,8 @@ impl MainWindow {
         self.tv.item_by_id(id).or_else(|| self.radio.item_by_id(id))
     }
 
-    /// Pornire, alegerea sursei (dacă are mai multe URL-uri) și, pentru
-    /// „Canalele mele”, editare și ștergere.
+    /// Play, source choice (when there are several URLs) and, for
+    /// "My channels", edit and delete.
     fn show_channel_menu(&self, anchor: &gtk::Widget, x: f64, y: f64, row: &ChannelRow) {
         let ch = &row.channel;
         let menu = gio::Menu::new();
@@ -819,7 +819,7 @@ impl MainWindow {
         menu.append_section(None, &play);
 
         if ch.urls.len() > 1 {
-            // Sursa care rulează acum pentru acest canal, dacă e cazul.
+            // The source playing now for this channel, if any.
             let playing = self
                 .current
                 .borrow()
@@ -863,8 +863,8 @@ impl MainWindow {
         pop.popup();
     }
 
-    /// Un canal din „Canalele mele” a fost editat: dacă e cel curent, panoul
-    /// și „ultimul canal” urmează noile date (redarea nu se întrerupe).
+    /// A channel in "My channels" was edited: if it is the current one, the panel
+    /// and "last channel" follow the new data (playback is not interrupted).
     pub(crate) fn channel_edited(&self, id: i64, name: &str, kind: Kind, urls: &[String]) {
         let mut cur = self.current.borrow_mut();
         let Some(c) = cur.as_mut().filter(|c| c.channel_id == id) else {
@@ -933,14 +933,14 @@ impl MainWindow {
     }
 }
 
-/// Acces pentru testele de integrare (`crates/tvmaxe/tests/ui.rs`).
+/// Access for the integration tests (`crates/tvmaxe/tests/ui.rs`).
 #[doc(hidden)]
 impl MainWindow {
     pub fn channel_count(&self, kind: Kind) -> u32 {
         self.list(kind).len()
     }
 
-    /// Pornește canalul de pe poziția `index`, ca la dublu-click.
+    /// Plays the channel at position `index`, like a double-click.
     pub fn play_channel_at(&self, kind: Kind, index: u32) -> bool {
         let Some(obj) = self.list(kind).item(index) else {
             return false;
@@ -970,7 +970,7 @@ impl MainWindow {
     }
 }
 
-/// „2. backup.example/live/tvr1.m3u8”; ▶ marchează sursa care rulează.
+/// "2. backup.example/live/tvr1.m3u8"; ▶ marks the source that is playing.
 fn source_label(index: usize, url: &str, playing: bool) -> String {
     let short = url.split_once("://").map_or(url, |(_, rest)| rest);
     let chars: Vec<char> = short.chars().collect();
@@ -981,12 +981,12 @@ fn source_label(index: usize, url: &str, playing: bool) -> String {
     } else {
         short.to_string()
     };
-    // În meniurile GTK „_” marchează tasta de acces; dublat apare ca atare.
+    // In GTK menus "_" marks the access key; doubled it shows as is.
     let short = short.replace('_', "__");
     format!("{}{}. {short}", if playing { "▶ " } else { "" }, index + 1)
 }
 
-/// Ora locală, „20:30”.
+/// Local time, "20:30".
 pub fn hhmm(unix: i64) -> String {
     glib::DateTime::from_unix_local(unix)
         .and_then(|d| d.format("%H:%M"))
@@ -1010,7 +1010,7 @@ mod tests {
         assert_eq!(
             source_label(0, "https://backup.example/live/tv_1.m3u8", false),
             "1. backup.example/live/tv__1.m3u8",
-            "fără schemă; „_” dublat pentru meniurile GTK"
+            "no scheme; \"_\" doubled for GTK menus"
         );
         assert!(source_label(2, "rtmp://a/b", true).starts_with("▶ 3. "));
         let long = format!("http://example.org/{}", "x".repeat(80));

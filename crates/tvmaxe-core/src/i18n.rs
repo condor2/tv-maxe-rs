@@ -1,14 +1,14 @@
-//! Textele interfeței: engleză (implicit) și română.
+//! Interface texts: English (default) and Romanian.
 //!
-//! Textul englezesc din cod e și cheia de căutare, iar catalogul românesc e
-//! compilat în binar ([`catalog_ro`]), deci nu trebuie instalate fișiere de
-//! traducere. Limba se alege din mediu, ca la orice program Unix:
-//! `LANGUAGE`, apoi `LC_ALL`, `LC_MESSAGES`, `LANG`.
+//! The English text in the code is also the lookup key, and the Romanian catalog
+//! is compiled into the binary ([`catalog_ro`]), so no translation files have to
+//! be installed. The language comes from the environment, like for any Unix
+//! program: `LANGUAGE`, then `LC_ALL`, `LC_MESSAGES`, `LANG`.
 //!
 //! ```text
-//! tr("Subscriptions")                       // „Abonamente” pe un sistem în română
-//! fill(tr("Playing: %1"), &[&name])         // %1…%9 înlocuite într-o singură trecere
-//! trn("%n channel", "%n channels", n)       // plural (în română: 1 / 2–19 / 20+ „de”)
+//! tr("Subscriptions")                       // "Abonamente" on a Romanian system
+//! fill(tr("Playing: %1"), &[&name])         // %1…%9 replaced in a single pass
+//! trn("%n channel", "%n channels", n)       // plural (Romanian: 1 / 2–19 / 20+ "de")
 //! ```
 
 mod catalog_ro;
@@ -25,22 +25,22 @@ pub enum Language {
 
 static LANGUAGE: OnceLock<Language> = OnceLock::new();
 
-/// Limba aleasă din mediul procesului (citită o singură dată).
+/// The language chosen from the process environment (read once).
 pub fn language() -> Language {
     *LANGUAGE.get_or_init(|| detect_language(|name| std::env::var(name).ok()))
 }
 
-/// Fixează limba înainte de prima traducere (testele de integrare compară
-/// texte, deci nu pot depinde de limba sistemului). Întoarce `false` dacă
-/// limba fusese deja aleasă altfel.
+/// Fixes the language before the first translation (the integration tests
+/// compare texts, so they cannot depend on the system language). Returns
+/// `false` if a different language had already been chosen.
 #[doc(hidden)]
 pub fn force_language(lang: Language) -> bool {
     *LANGUAGE.get_or_init(|| lang) == lang
 }
 
-/// Ordinea obișnuită pe Unix: fiecare intrare din `LANGUAGE`, apoi locale-ul
-/// efectiv din `LC_ALL`, `LC_MESSAGES` sau `LANG`. O preferință explicită
-/// pentru engleză (sau `C` / `POSIX`) oprește căutarea.
+/// The usual Unix order: every entry of `LANGUAGE`, then the effective
+/// locale from `LC_ALL`, `LC_MESSAGES` or `LANG`. An explicit preference
+/// for English (or `C` / `POSIX`) stops the search.
 pub fn detect_language(var: impl Fn(&str) -> Option<String>) -> Language {
     let mut candidates: Vec<String> = Vec::new();
     if let Some(list) = var("LANGUAGE") {
@@ -70,7 +70,7 @@ fn catalog() -> &'static HashMap<&'static str, &'static str> {
     CATALOG.get_or_init(|| catalog_ro::RO.iter().copied().collect())
 }
 
-/// Traduce un text. Textele necunoscute rămân neschimbate (în engleză).
+/// Translates a text. Unknown texts are returned unchanged (in English).
 pub fn tr(source: &'static str) -> &'static str {
     match language() {
         Language::English => source,
@@ -78,8 +78,8 @@ pub fn tr(source: &'static str) -> &'static str {
     }
 }
 
-/// Forma de plural românească (aceeași regulă ca gettext pentru `ro`):
-/// 0 = „1 canal”, 1 = „2 canale”, 2 = „20 de canale”.
+/// Romanian plural form (same rule as gettext for `ro`):
+/// 0 = "1 canal", 1 = "2 canale", 2 = "20 de canale".
 pub fn romanian_plural_form(n: u64) -> usize {
     if n == 1 {
         0
@@ -90,7 +90,7 @@ pub fn romanian_plural_form(n: u64) -> usize {
     }
 }
 
-/// Text cu plural. `one` e și cheia în catalog; `%n` devine numărul.
+/// Text with a plural. `one` is also the catalog key; `%n` becomes the number.
 pub fn trn(one: &'static str, other: &'static str, n: u64) -> String {
     let template = match language() {
         Language::English => {
@@ -109,8 +109,8 @@ pub fn trn(one: &'static str, other: &'static str, n: u64) -> String {
     template.replace("%n", &n.to_string())
 }
 
-/// Înlocuiește `%1`…`%9` într-o singură trecere: textul pus în locul unui
-/// marcaj nu e reinterpretat (un nume de canal care conține „%2” rămâne așa).
+/// Replaces `%1`…`%9` in a single pass: text inserted for one placeholder
+/// is not reinterpreted (a channel name containing "%2" stays as it is).
 pub fn fill(template: &str, args: &[&dyn Display]) -> String {
     let mut out = String::with_capacity(template.len() + 16);
     let mut chars = template.chars().peekable();
@@ -129,7 +129,7 @@ pub fn fill(template: &str, args: &[&dyn Display]) -> String {
     out
 }
 
-/// Cheile catalogului (pentru testul care verifică acoperirea traducerilor).
+/// The catalog keys (for the test that checks translation coverage).
 #[doc(hidden)]
 pub fn catalog_entries() -> impl Iterator<Item = (&'static str, &'static str)> {
     catalog_ro::RO.iter().copied()
@@ -162,7 +162,7 @@ mod tests {
         assert_eq!(
             detect_language(env(&[("LANG", "ro_RO.UTF-8"), ("LC_ALL", "C")])),
             English,
-            "LC_ALL are prioritate"
+            "LC_ALL has priority"
         );
         assert_eq!(
             detect_language(env(&[
@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(
             detect_language(env(&[("LANGUAGE", "de:ro"), ("LANG", "de_DE.UTF-8")])),
             Romanian,
-            "a doua preferință din LANGUAGE"
+            "second preference in LANGUAGE"
         );
         assert_eq!(
             detect_language(env(&[("LANGUAGE", "en_GB:ro"), ("LANG", "ro_RO.UTF-8")])),
@@ -195,24 +195,24 @@ mod tests {
     fn fill_is_single_pass() {
         assert_eq!(fill("%1 · %2", &[&"a %2", &"b"]), "a %2 · b");
         assert_eq!(fill("100% %1", &[&5]), "100% 5");
-        assert_eq!(fill("%3 lipsă", &[&1]), "%3 lipsă");
+        assert_eq!(fill("%3 missing", &[&1]), "%3 missing");
     }
 
     #[test]
     fn catalog_is_well_formed() {
         let mut seen = std::collections::HashSet::new();
         for (en, ro) in catalog_entries() {
-            assert!(seen.insert(en), "cheie duplicată: {en:?}");
-            assert!(!ro.trim().is_empty(), "traducere goală: {en:?}");
+            assert!(seen.insert(en), "duplicate key: {en:?}");
+            assert!(!ro.trim().is_empty(), "empty translation: {en:?}");
             assert_eq!(
                 placeholders(en),
                 placeholders(ro),
-                "marcaje diferite: {en:?}"
+                "different placeholders: {en:?}"
             );
         }
         for (one, forms) in plural_entries() {
             for f in forms {
-                assert!(f.contains("%n"), "{one:?} → {f:?} fără %n");
+                assert!(f.contains("%n"), "{one:?} → {f:?} without %n");
             }
         }
     }

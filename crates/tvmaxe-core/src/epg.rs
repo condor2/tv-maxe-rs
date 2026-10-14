@@ -1,4 +1,4 @@
-//! Ghid TV în format XMLTV (standardul folosit de listele IPTV):
+//! TV guide in XMLTV format (the standard used by IPTV lists):
 //!
 //! ```xml
 //! <tv>
@@ -9,8 +9,8 @@
 //! </tv>
 //! ```
 //!
-//! Fișierele EPG pot avea sute de MB (mii de canale), așa că parserul păstrează
-//! doar canalele care apar în listele utilizatorului și doar câteva zile.
+//! EPG files can be hundreds of MB (thousands of channels), so the parser keeps
+//! only the channels that appear in the user's lists and only a few days.
 
 use crate::i18n::{fill, tr};
 use crate::{Error, Result};
@@ -19,11 +19,11 @@ use quick_xml::events::Event;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 
-/// Limita pentru XMLTV după decomprimare. Protejează aplicația de arhive gzip
-/// care se extind disproporționat în memorie.
+/// Limit for XMLTV after decompression. Protects the application from gzip
+/// archives that expand disproportionately in memory.
 pub const MAX_DECOMPRESSED_EPG: u64 = 256 * 1024 * 1024;
 
-/// O emisiune. `channel` e id-ul XMLTV, cu litere mici.
+/// A programme. `channel` is the XMLTV id, lowercased.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Programme {
     pub channel: String,
@@ -34,7 +34,7 @@ pub struct Programme {
 }
 
 impl Programme {
-    /// Cât s-a scurs din emisiune (0.0–1.0) la momentul `now`.
+    /// How much of the programme has elapsed (0.0–1.0) at `now`.
     pub fn progress(&self, now: i64) -> f64 {
         let len = (self.stop - self.start).max(1) as f64;
         ((now - self.start) as f64 / len).clamp(0.0, 1.0)
@@ -43,9 +43,9 @@ impl Programme {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuideChannel {
-    /// Id XMLTV cu litere mici.
+    /// Lowercased XMLTV id.
     pub id: String,
-    /// Numele afișate, normalizate cu [`normalize_name`].
+    /// Display names, normalised with [`normalize_name`].
     pub names: Vec<String>,
 }
 
@@ -55,17 +55,17 @@ pub struct Guide {
     pub programmes: Vec<Programme>,
 }
 
-/// Canalele care ne interesează (din listele utilizatorului).
+/// The channels we care about (from the user's lists).
 #[derive(Debug, Clone, Default)]
 pub struct Wanted {
-    /// `tvg-id` cu litere mici.
+    /// Lowercased `tvg-id`.
     pub ids: HashSet<String>,
     /// Nume normalizate.
     pub names: HashSet<String>,
 }
 
-/// Nume comparabil între surse: fără diacritice, spații, punctuație și
-/// sufixe de calitate. „Pro TV HD” → `protv`, „TVR 1” → `tvr1`.
+/// A name comparable across sources: no diacritics, spaces, punctuation or
+/// quality suffixes. "Pro TV HD" → `protv`, "TVR 1" → `tvr1`.
 pub fn normalize_name(s: &str) -> String {
     let mut out: String = s
         .chars()
@@ -95,7 +95,7 @@ pub fn normalize_name(s: &str) -> String {
     }
 }
 
-/// `20261014203000 +0300` → secunde Unix. Fără fus orar = UTC.
+/// `20261014203000 +0300` → Unix seconds. No time zone = UTC.
 pub fn parse_xmltv_time(s: &str) -> Option<i64> {
     let s = s.trim();
     let (digits, tz) = match s.split_once(' ') {
@@ -129,7 +129,7 @@ pub fn parse_xmltv_time(s: &str) -> Option<i64> {
     Some(days_from_civil(y, mo, d) * 86400 + h * 3600 + mi * 60 + sec - offset)
 }
 
-/// Zile de la 1970-01-01 (algoritmul lui Howard Hinnant).
+/// Days since 1970-01-01 (Howard Hinnant's algorithm).
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
@@ -140,7 +140,7 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146097 + doe - 719468
 }
 
-/// Dezarhivează `.xml.gz` (detectat după conținut).
+/// Decompresses `.xml.gz` (detected from the content).
 pub fn decompress(data: Vec<u8>) -> Result<Vec<u8>> {
     decompress_limited(data, MAX_DECOMPRESSED_EPG)
 }
@@ -182,16 +182,16 @@ enum Field {
     Desc,
 }
 
-/// Parsează XMLTV. `wanted` = doar aceste canale (`None` = toate),
-/// `window` = doar emisiunile care se suprapun cu intervalul dat.
+/// Parses XMLTV. `wanted` = only these channels (`None` = all),
+/// `window` = only programmes overlapping the given interval.
 pub fn parse_xmltv(
     data: &[u8],
     wanted: Option<&Wanted>,
     window: Option<(i64, i64)>,
 ) -> Result<Guide> {
     let text = String::from_utf8_lossy(data);
-    // Fără trim_text: ar tăia spațiile din jurul entităților („A &amp; B” → „A&B”).
-    // Textul adunat e curățat la final.
+    // No trim_text: it would strip the spaces around entities ("A &amp; B" → "A&B").
+    // The collected text is trimmed at the end.
     let mut reader = quick_xml::Reader::from_str(&text);
 
     let mut guide = Guide::default();
@@ -207,7 +207,7 @@ pub fn parse_xmltv(
     loop {
         let ev = match reader.read_event() {
             Ok(ev) => ev,
-            // Un fișier trunchiat la final nu strică ce s-a citit deja.
+            // A file truncated at the end does not spoil what was already read.
             Err(e) if root_seen && !guide.programmes.is_empty() => {
                 let _ = e;
                 break;
@@ -350,11 +350,11 @@ fn attr(e: &quick_xml::events::BytesStart, name: &str) -> Option<String> {
         })
 }
 
-/// Unele surse omit `stop`: emisiunea ține până la următoarea de pe același canal.
+/// Some sources omit `stop`: the programme lasts until the next one on the same channel.
 fn fill_missing_stops(progs: &mut [Programme]) {
     progs.sort_by(|a, b| a.channel.cmp(&b.channel).then(a.start.cmp(&b.start)));
     let mut next_start: HashMap<&str, i64> = HashMap::new();
-    // Parcurgem invers ca să știm începutul emisiunii următoare.
+    // Walk backwards so we know when the next programme starts.
     let mut fixes = Vec::new();
     for (i, p) in progs.iter().enumerate().rev() {
         if p.stop <= p.start {
@@ -426,7 +426,7 @@ mod tests {
         assert_eq!(normalize_name("Digi 24 FHD"), "digi24");
         assert_eq!(normalize_name("Antena 3 CNN"), "antena3cnn");
         assert_eq!(normalize_name("Știrile Țării"), "stiriletarii");
-        assert_eq!(normalize_name("HD"), "hd", "nu golește numele");
+        assert_eq!(normalize_name("HD"), "hd", "does not empty the name");
     }
 
     #[test]
@@ -441,18 +441,15 @@ mod tests {
             .iter()
             .filter(|p| p.channel == "tvr1.ro")
             .collect();
-        assert_eq!(
-            tvr[0].title, "Telejurnal & Sport",
-            "primul titlu + entități"
-        );
+        assert_eq!(tvr[0].title, "Telejurnal & Sport", "first title + entities");
         assert_eq!(
             tvr[0].desc.as_deref(),
             Some("Știri și vreme"),
-            "referință numerică"
+            "numeric reference"
         );
         assert_eq!(
             tvr[1].stop, tvr[2].start,
-            "stop lipsă = începutul următoarei"
+            "missing stop = start of the next one"
         );
         assert_eq!(tvr[2].title, "Noapte <bună>", "CDATA");
     }
@@ -499,7 +496,7 @@ mod tests {
         assert_eq!(
             g.programmes.len(),
             2,
-            "un fișier tăiat păstrează ce s-a citit"
+            "a truncated file keeps what was read"
         );
     }
 

@@ -1,5 +1,5 @@
-//! Un tab din stânga („Canale TV” / „Canale radio”), ca în TV-Maxe:
-//! „Listă de canale:” + selector de abonament, căutare, listă cu logo și nume.
+//! A tab on the left ("TV channels" / "Radio stations"), like in TV-Maxe:
+//! "Channel list:" + subscription picker, search, list with logo and name.
 
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
@@ -10,11 +10,11 @@ use tvmaxe_core::{Kind, StoredChannel, Subscription};
 
 pub const LOGO_SIZE: i32 = 24;
 
-/// Un rând din listă. Logo-ul se decodează leneș, la prima afișare.
+/// A row of the list. The logo is decoded lazily, on first display.
 pub struct ChannelRow {
     pub channel: StoredChannel,
     pub subscription: String,
-    /// Id-ul canalului în ghidul TV, dacă a fost găsit.
+    /// The channel's id in the TV guide, if it was found.
     pub epg_key: Option<String>,
     /// Titlul emisiunii curente (actualizat periodic).
     pub now_title: RefCell<Option<String>>,
@@ -36,7 +36,7 @@ impl ChannelRow {
         *self.texture.borrow_mut() = Some(t);
     }
 
-    /// Logo-ul trebuie descărcat (nu e în bază și nu a eșuat anterior)?
+    /// Does the logo need downloading (not in the database and not failed before)?
     pub fn needs_logo(&self) -> Option<&str> {
         let c = &self.channel;
         (c.logo.is_none() && !c.logo_failed && self.texture.borrow().is_none())
@@ -62,7 +62,7 @@ pub fn row_of(obj: &glib::Object) -> std::cell::Ref<'_, ChannelRow> {
 
 type Callback = Box<dyn Fn(&ChannelRow)>;
 type LogoCallback = Box<dyn Fn(&str)>;
-/// Click dreapta pe un rând: (widget, x, y, rând).
+/// Right-click on a row: (widget, x, y, row).
 type MenuCallback = Box<dyn Fn(&gtk::Widget, f64, f64, &ChannelRow)>;
 
 pub struct ChannelList {
@@ -74,17 +74,17 @@ pub struct ChannelList {
     list_view: gtk::ListView,
     source: gtk::DropDown,
     search: gtk::SearchEntry,
-    /// id-urile abonamentelor din selector (index 0 = „Toate listele”).
+    /// Subscription ids in the picker (index 0 = "All lists").
     source_ids: RefCell<Vec<i64>>,
     stack: gtk::Stack,
     on_activate: RefCell<Option<Callback>>,
-    /// Rândurile create de fabrică (refolosite la derulare).
+    /// Rows created by the factory (reused while scrolling).
     items: RefCell<Vec<glib::WeakRef<gtk::ListItem>>>,
-    /// Filtrul pe grup (`group-title`: țară, categorie…); index 0 = toate.
+    /// Group filter (`group-title`: country, category…); index 0 = all.
     group: gtk::DropDown,
     group_box: gtk::Box,
     group_names: RefCell<Vec<String>>,
-    /// Cerere de logo pentru un rând afișat (încărcare la cerere).
+    /// Logo request for a visible row (loading on demand).
     need_logo: RefCell<Option<LogoCallback>>,
     on_menu: RefCell<Option<MenuCallback>>,
 }
@@ -187,7 +187,7 @@ impl ChannelList {
         this.install_factory();
         this.install_filter();
 
-        // Dublu-click / Enter pe canal → redare.
+        // Double-click / Enter on a channel → play.
         let weak = Rc::downgrade(&this);
         this.list_view.connect_activate(move |lv, pos| {
             let Some(this) = weak.upgrade() else { return };
@@ -217,7 +217,7 @@ impl ChannelList {
                 .hexpand(true)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
                 .build();
-            // Sub nume: emisiunea curentă din ghidul TV.
+            // Under the name: the current programme from the TV guide.
             let now = gtk::Label::builder()
                 .xalign(0.0)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
@@ -241,7 +241,7 @@ impl ChannelList {
             row.append(&image);
             row.append(&text);
 
-            // Click dreapta → meniul canalului (construit de fereastră).
+            // Right-click → the channel menu (built by the window).
             let click = gtk::GestureClick::builder().button(3).build();
             let item_w = item.downgrade();
             let weak = weak.clone();
@@ -273,7 +273,7 @@ impl ChannelList {
         self.list_view.set_factory(Some(&factory));
     }
 
-    /// Filtrare: abonamentul ales + text căutat (nume sau categorie).
+    /// Filtering: the chosen subscription + the search text (name or category).
     fn install_filter(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         self.filter.set_filter_func(move |obj| {
@@ -318,7 +318,7 @@ impl ChannelList {
             .connect_selected_notify(move |_| f.changed(gtk::FilterChange::Different));
     }
 
-    /// Grupurile din lista aleasă, sortate; ascuns dacă nu are rost.
+    /// The groups of the chosen list, sorted; hidden when pointless.
     fn rebuild_groups(&self) {
         let sel = self.source.selected() as usize;
         let sub = (sel > 0)
@@ -355,7 +355,7 @@ impl ChannelList {
         *self.on_menu.borrow_mut() = Some(Box::new(f));
     }
 
-    /// Rândul canalului cu id-ul din bază, dacă e în această listă.
+    /// The row of the channel with this database id, if it is in this list.
     pub fn item_by_id(&self, id: i64) -> Option<glib::BoxedAnyObject> {
         (0..self.store.n_items())
             .filter_map(|i| self.store.item(i).and_downcast::<glib::BoxedAnyObject>())
@@ -366,7 +366,7 @@ impl ChannelList {
         *self.need_logo.borrow_mut() = Some(Box::new(f));
     }
 
-    /// A sosit un logo: îl pune pe toate rândurile care îl folosesc.
+    /// A logo arrived: put it on every row that uses it.
     pub fn set_logo(&self, url: &str, texture: &gdk::Texture) {
         let mut changed = false;
         for i in 0..self.store.n_items() {
@@ -382,7 +382,7 @@ impl ChannelList {
         }
     }
 
-    /// Re-completează doar rândurile afișate (modelul rămâne neatins).
+    /// Refills only the visible rows (the model stays untouched).
     pub fn refresh_visible(&self) {
         self.items.borrow_mut().retain(|w| w.upgrade().is_some());
         let items: Vec<gtk::ListItem> = self
@@ -406,7 +406,7 @@ impl ChannelList {
         *self.on_activate.borrow_mut() = Some(Box::new(f));
     }
 
-    /// Reîncarcă selectorul de abonamente, păstrând selecția dacă se poate.
+    /// Reloads the subscription picker, keeping the selection when possible.
     pub fn set_subscriptions(&self, subs: &[Subscription]) {
         let current = self
             .source_ids
@@ -436,7 +436,7 @@ impl ChannelList {
         self.source.set_selected(keep as u32);
     }
 
-    /// Înlocuiește canalele, păstrând canalul selectat (după URL) dacă există.
+    /// Replaces the channels, keeping the selected channel (by URL) if it still exists.
     pub fn set_channels(&self, rows: Vec<ChannelRow>) {
         let selected_url = self
             .selected()
@@ -452,7 +452,7 @@ impl ChannelList {
         }
     }
 
-    /// Actualizează „acum rulează” pe fiecare rând și redesenează lista.
+    /// Updates "now playing" on every row and redraws the list.
     pub fn update_now(&self, title_for: impl Fn(&str) -> Option<String>) {
         for i in 0..self.store.n_items() {
             let obj = self.store.item(i).unwrap();
@@ -460,7 +460,7 @@ impl ChannelList {
             let title = row.epg_key.as_deref().and_then(&title_for);
             *row.now_title.borrow_mut() = title;
         }
-        // Doar rândurile afișate; modelul rămâne neatins (selecția și derularea la fel).
+        // Only the visible rows; the model stays untouched (and so do selection and scrolling).
         self.refresh_visible();
     }
 
@@ -474,7 +474,7 @@ impl ChannelList {
         })
     }
 
-    /// Rândul de pe poziția `i` din lista completă (nefiltrată).
+    /// The row at position `i` in the full (unfiltered) list.
     pub fn item(&self, i: u32) -> Option<glib::BoxedAnyObject> {
         self.store.item(i).and_downcast()
     }
@@ -496,7 +496,7 @@ impl ChannelList {
         self.selection.selected_item().and_downcast()
     }
 
-    /// Selectează canalul cu primul URL dat și îl aduce în vizor.
+    /// Selects the channel with the given first URL and scrolls it into view.
     pub fn select_by_url(&self, url: &str) -> bool {
         let model = self.selection.model().unwrap();
         let found = (0..model.n_items()).find(|&i| {
@@ -522,8 +522,8 @@ impl ChannelList {
     }
 }
 
-/// Completează widget-urile unui rând din datele lui (folosit la bind și la
-/// actualizarea periodică a ghidului).
+/// Fills a row's widgets from its data (used on bind and on the periodic
+/// guide update).
 fn bind_row(item: &gtk::ListItem) {
     let Some(obj) = item.item() else { return };
     let row = row_of(&obj);
@@ -555,7 +555,7 @@ fn bind_row(item: &gtk::ListItem) {
     bx.set_tooltip_text(Some(&tip));
 }
 
-/// Text pentru căutare: litere mici, fără diacritice („Știri” ↔ „stiri”).
+/// Text for searching: lowercase, without diacritics ("Știri" ↔ "stiri").
 fn fold(s: &str) -> String {
     s.chars()
         .flat_map(char::to_lowercase)

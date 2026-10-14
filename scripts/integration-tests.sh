@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Testele de integrare (libmpv + GTK) pe un ecran virtual, ca în CI.
+# Integration tests (libmpv + GTK) on a virtual display, like in CI.
 #
-#   scripts/integration-tests.sh x11         # Xvfb
-#   scripts/integration-tests.sh wayland     # weston --backend=headless
-#   scripts/integration-tests.sh x11 antete  # doar testele care conțin „antete”
+#   scripts/integration-tests.sh x11          # Xvfb
+#   scripts/integration-tests.sh wayland      # weston --backend=headless
+#   scripts/integration-tests.sh x11 headers  # only tests whose name contains "headers"
 #
-# Necesită: xvfb (xvfb-run) pentru x11, weston pentru wayland.
+# Requires: xvfb (xvfb-run) for x11, weston for wayland.
 set -euo pipefail
 
 mode=${1:-x11}
 shift || true
 
 export TVMAXE_REQUIRE_DISPLAY=1
-# OpenGL software (llvmpipe), identic pe orice mașină; fără încercări Vulkan/zink.
+# Software OpenGL (llvmpipe), identical on every machine; no Vulkan/zink attempts.
 export LIBGL_ALWAYS_SOFTWARE=1
 export GALLIUM_DRIVER=llvmpipe
 
@@ -44,7 +44,7 @@ wayland)
     WAYLAND_DISPLAY=$socket GDK_BACKEND=wayland "${cmd[@]}"
     ;;
 *)
-    echo "folosire: $0 x11|wayland [filtru…]" >&2
+    echo "usage: $0 x11|wayland [filter…]" >&2
     exit 2
     ;;
 esac

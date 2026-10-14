@@ -1,8 +1,8 @@
-//! Rezolvarea funcțiilor OpenGL pentru libmpv.
+//! Resolving OpenGL functions for libmpv.
 //!
-//! GTK 4 creează contextul GL (EGL pe Wayland și, de regulă, și pe X11; GLX
-//! ca rezervă). mpv are nevoie de un `get_proc_address` pentru contextul
-//! curent, așa că încărcăm dinamic EGL și GLX, fără link la libGL/libEGL.
+//! GTK 4 creates the GL context (EGL on Wayland and usually on X11 too; GLX
+//! as a fallback). mpv needs a `get_proc_address` for the current context,
+//! so EGL and GLX are loaded dynamically, without linking to libGL/libEGL.
 
 use libloading::Library;
 use std::ffi::{CString, c_char, c_void};
@@ -23,11 +23,11 @@ fn loader() -> &'static Loader {
         ];
         let mut procs = Vec::new();
         for (lib, sym) in candidates {
-            // SAFETY: bibliotecile de sistem GL/EGL nu rulează cod nesigur la încărcare.
+            // SAFETY: the system GL/EGL libraries run no unsafe code when loaded.
             let Ok(library) = (unsafe { Library::new(lib) }) else {
                 continue;
             };
-            // SAFETY: semnătura corespunde API-ului EGL/GLX.
+            // SAFETY: the signature matches the EGL/GLX API.
             if let Ok(f) = unsafe { library.get::<GetProcAddr>(sym).map(|s| *s) } {
                 procs.push((library, f));
             }
@@ -36,13 +36,13 @@ fn loader() -> &'static Loader {
     })
 }
 
-/// Pasat la `OpenGLInitParams::get_proc_address`.
+/// Passed to `OpenGLInitParams::get_proc_address`.
 pub fn get_proc_address(_ctx: &(), name: &str) -> *mut c_void {
     let Ok(cname) = CString::new(name) else {
         return std::ptr::null_mut();
     };
     for (_, f) in &loader().procs {
-        // SAFETY: apelat din callback-ul mpv, cu contextul GLArea curent.
+        // SAFETY: called from the mpv callback, with the GLArea context current.
         let p = unsafe { f(cname.as_ptr()) };
         if !p.is_null() {
             return p;
@@ -51,8 +51,8 @@ pub fn get_proc_address(_ctx: &(), name: &str) -> *mut c_void {
     std::ptr::null_mut()
 }
 
-/// `true` dacă GL-ul e emulat pe procesor (llvmpipe, softpipe, swrast):
-/// acolo scalarea de calitate a mpv e prea lentă pentru video live.
+/// `true` if GL is emulated on the CPU (llvmpipe, softpipe, swrast):
+/// there mpv's quality scaling is too slow for live video.
 pub fn is_software_renderer() -> bool {
     const GL_RENDERER: u32 = 0x1F01;
     type GetString = unsafe extern "C" fn(u32) -> *const c_char;
@@ -60,7 +60,7 @@ pub fn is_software_renderer() -> bool {
     if p.is_null() {
         return false;
     }
-    // SAFETY: pointer nenul către glGetString; contextul GL e curent (realize).
+    // SAFETY: non-null pointer to glGetString; the GL context is current (realize).
     let s = unsafe {
         let f = std::mem::transmute::<*mut c_void, GetString>(p);
         let r = f(GL_RENDERER);
@@ -74,7 +74,7 @@ pub fn is_software_renderer() -> bool {
         .any(|k| s.contains(k))
 }
 
-/// FBO-ul legat de GtkGLArea în timpul semnalului `render` (nu e 0).
+/// The FBO bound by GtkGLArea during the `render` signal (not 0).
 pub fn current_draw_fbo() -> i32 {
     const GL_DRAW_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
     type GetIntegerv = unsafe extern "C" fn(u32, *mut i32);
@@ -82,13 +82,13 @@ pub fn current_draw_fbo() -> i32 {
     static GET_INTEGERV: OnceLock<Option<GetIntegerv>> = OnceLock::new();
     let f = GET_INTEGERV.get_or_init(|| {
         let p = get_proc_address(&(), "glGetIntegerv");
-        // SAFETY: pointer nenul către glGetIntegerv.
+        // SAFETY: non-null pointer to glGetIntegerv.
         (!p.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, GetIntegerv>(p) })
     });
 
     let mut fbo = 0;
     if let Some(f) = f {
-        // SAFETY: contextul GL e curent (suntem în handler-ul `render`).
+        // SAFETY: the GL context is current (we are in the `render` handler).
         unsafe { f(GL_DRAW_FRAMEBUFFER_BINDING, &mut fbo) };
     }
     fbo

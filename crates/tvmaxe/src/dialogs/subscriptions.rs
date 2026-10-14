@@ -1,4 +1,4 @@
-//! Gestionarea abonamentelor de canale.
+//! Managing channel subscriptions.
 
 use crate::window::MainWindow;
 use gtk::prelude::*;
@@ -82,8 +82,8 @@ impl SubscriptionsDialog {
             .title(tr("Subscriptions"))
             .transient_for(&main.window)
             .modal(true)
-            // Se ascunde la închidere și e refolosită: o fereastră distrusă nu
-            // mai poate fi reafișată (GTK o lasă într-o stare inconsistentă).
+            // Hidden on close and reused: a destroyed window cannot be
+            // shown again (GTK leaves it in an inconsistent state).
             .hide_on_close(true)
             .default_width(600)
             .default_height(440)
@@ -182,7 +182,7 @@ impl SubscriptionsDialog {
         check.connect_toggled(move |c| {
             let Some(main) = main_w.upgrade() else { return };
             let _ = main.db.borrow().set_subscription_enabled(id, c.is_active());
-            // Reconstruirea rândurilor se face după ce se termină semnalul.
+            // The rows are rebuilt after the signal has finished.
             glib::idle_add_local_once(move || main.reload());
         });
 

@@ -1,4 +1,4 @@
-//! Preferințele aplicației.
+//! Application preferences.
 
 use crate::window::MainWindow;
 use gtk::glib;
@@ -6,7 +6,7 @@ use gtk::prelude::*;
 use std::rc::Rc;
 use tvmaxe_core::i18n::tr;
 
-// ---------- Preferințe ----------
+// ---------- Preferences ----------
 
 pub fn preferences(main: &Rc<MainWindow>) {
     use crate::player::VideoQuality;
@@ -14,7 +14,7 @@ pub fn preferences(main: &Rc<MainWindow>) {
 
     let s = main.settings();
 
-    // Fiecare control salvează și aplică imediat (fără buton „Aplică”).
+    // Every control saves and applies immediately (no "Apply" button).
     let update = {
         let main = Rc::downgrade(main);
         move |f: &dyn Fn(&mut Settings)| {
@@ -26,7 +26,7 @@ pub fn preferences(main: &Rc<MainWindow>) {
         }
     };
 
-    // --- Redare ---
+    // --- Playback ---
     let hwdec = gtk::Switch::builder()
         .active(s.playback.hardware_decoding)
         .valign(gtk::Align::Center)
@@ -71,7 +71,7 @@ pub fn preferences(main: &Rc<MainWindow>) {
         u(&|s| s.playback.user_agent = (!t.is_empty()).then(|| t.clone()))
     });
 
-    // --- Liste și pornire ---
+    // --- Lists and startup ---
     let refresh = gtk::Switch::builder()
         .active(s.refresh_on_start)
         .valign(gtk::Align::Center)
@@ -230,7 +230,7 @@ pub fn preferences(main: &Rc<MainWindow>) {
         .child(&content)
         .build();
 
-    // Resetarea mută controalele; handler-ele lor salvează valorile implicite.
+    // Resetting moves the controls; their handlers save the default values.
     let d = Settings::default();
     defaults.connect_clicked(move |_| {
         hwdec.set_active(d.playback.hardware_decoding);
@@ -287,7 +287,7 @@ fn seconds_spin((min, max): (u32, u32), value: u32) -> (gtk::Box, gtk::SpinButto
     (bx, spin)
 }
 
-/// Titlu de secțiune + rânduri „etichetă (cu explicație) — control”.
+/// Section title + rows "label (with explanation) — control".
 fn section(title: &str, rows: &[(&str, Option<&str>, &gtk::Widget)]) -> gtk::Box {
     let heading = gtk::Label::builder().label(title).xalign(0.0).build();
     heading.add_css_class("channel-title");

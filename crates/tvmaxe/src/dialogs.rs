@@ -1,4 +1,4 @@
-//! Ferestre secundare, împărțite pe funcții.
+//! Secondary windows, split by purpose.
 
 mod channel;
 mod guide;

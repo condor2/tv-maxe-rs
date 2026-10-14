@@ -17,20 +17,20 @@ tvmaxe-core = { version = "0.1.0", path = "../tvmaxe-core" }
 
 [features]
 default = ["mpv"]
-# Backend video: libmpv randat în GtkGLArea.
+# Video backend: libmpv rendered into a GtkGLArea.
 mpv = ["dep:libmpv2", "dep:libloading", "dep:libc"]
 
 [[bin]]
 name = "tvmaxe"
 path = "src/main.rs"
-# Același nume ca biblioteca: documentația doar pentru bibliotecă.
+# Same name as the library: documentation only for the library.
 doc = false
 
 [dev-dependencies]
 libc = "0.2.190"
 
-# Teste de integrare cu GTK: au nevoie de firul principal și de ecran
-# (Xvfb / weston headless în CI), deci fiecare are propriul `main`.
+# Integration tests with GTK: they need the main thread and a display
+# (Xvfb / headless Weston in CI), so each one has its own `main`.
 [[test]]
 name = "player"
 harness = false

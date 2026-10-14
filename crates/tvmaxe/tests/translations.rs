@@ -1,7 +1,7 @@
-//! Acoperirea traducerilor: fiecare `tr("…")` / `trn("…", …)` din cod are
-//! traducere românească, iar catalogul nu păstrează texte care nu mai există.
-//! Un text nou fără traducere ar apărea în engleză pe un sistem în română;
-//! testul îl prinde înainte.
+//! Translation coverage: every `tr("…")` / `trn("…", …)` in the code has a
+//! Romanian translation, and the catalog keeps no texts that no longer exist.
+//! A new text without a translation would show up in English on a Romanian
+//! system; this test catches it first.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -28,8 +28,8 @@ fn sources() -> Vec<PathBuf> {
     files
 }
 
-/// Un literal șir Rust care începe la `s[0] == '"'`: (conținut, lungime).
-/// Tratează escape-urile folosite în cod și continuarea de linie (`\` + newline).
+/// A Rust string literal starting at `s[0] == '"'`: (content, length).
+/// Handles the escapes used in the code and line continuations (`\` + newline).
 fn string_literal(s: &str) -> Option<(String, usize)> {
     let mut out = String::new();
     let mut chars = s.char_indices().skip(1).peekable();
@@ -47,7 +47,7 @@ fn string_literal(s: &str) -> Option<(String, usize)> {
                         chars.next();
                     }
                 }
-                other => panic!("escape neașteptat \\{other}"),
+                other => panic!("unexpected escape \\{other}"),
             },
             c => out.push(c),
         }
@@ -55,7 +55,7 @@ fn string_literal(s: &str) -> Option<(String, usize)> {
     None
 }
 
-/// Literalele șir de după `name(` (sau `name!(`), separate prin virgule.
+/// The string literals after `name(` (or `name!(`), separated by commas.
 fn literal_args(code: &str, at: usize, count: usize) -> Option<Vec<String>> {
     let mut rest = &code[at..];
     let mut args = Vec::new();
@@ -91,7 +91,7 @@ fn collect() -> Usage {
                 }
                 let prev = code[..i].chars().next_back().unwrap_or(' ');
                 if prev.is_alphanumeric() || prev == '_' || prev == '.' {
-                    continue; // alt identificator, ex. `str(` sau `.tr(`
+                    continue; // another identifier, e.g. `str(` or `.tr(`
                 }
                 let start = i + pat.len();
                 match (pat, literal_args(&code, start, count)) {
@@ -119,7 +119,7 @@ fn every_text_has_a_romanian_translation() {
     let u = collect();
     assert!(
         u.texts.len() > 100,
-        "scanarea n-a găsit textele ({})",
+        "the scan did not find the texts ({})",
         u.texts.len()
     );
     let catalog: BTreeSet<&str> = catalog_entries().map(|(en, _)| en).collect();
@@ -128,10 +128,7 @@ fn every_text_has_a_romanian_translation() {
         .iter()
         .filter(|t| !catalog.contains(t.as_str()))
         .collect();
-    assert!(
-        missing.is_empty(),
-        "fără traducere românească: {missing:#?}"
-    );
+    assert!(missing.is_empty(), "no Romanian translation: {missing:#?}");
 
     let plurals: BTreeSet<&str> = plural_entries().map(|(k, _)| k).collect();
     let missing: Vec<&String> = u
@@ -139,7 +136,10 @@ fn every_text_has_a_romanian_translation() {
         .iter()
         .filter(|t| !plurals.contains(t.as_str()))
         .collect();
-    assert!(missing.is_empty(), "plural fără traducere: {missing:#?}");
+    assert!(
+        missing.is_empty(),
+        "plural without translation: {missing:#?}"
+    );
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn catalog_has_no_unused_entries() {
         .collect();
     assert!(
         unused.is_empty(),
-        "texte care nu mai apar în cod: {unused:#?}"
+        "texts no longer used in the code: {unused:#?}"
     );
     let unused: Vec<&str> = plural_entries()
         .map(|(k, _)| k)
@@ -159,17 +159,17 @@ fn catalog_has_no_unused_entries() {
         .collect();
     assert!(
         unused.is_empty(),
-        "plurale care nu mai apar în cod: {unused:#?}"
+        "plurals no longer used in the code: {unused:#?}"
     );
 }
 
 #[test]
 fn all_calls_use_literals() {
-    // Un `tr(variabilă)` nu poate fi verificat de testele de mai sus.
+    // A `tr(variable)` cannot be checked by the tests above.
     let u = collect();
     assert!(
         u.dynamic.is_empty(),
-        "apeluri tr() cu argument care nu e literal: {:#?}",
+        "tr() calls with a non-literal argument: {:#?}",
         u.dynamic
     );
 }

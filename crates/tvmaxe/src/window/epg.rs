@@ -1,4 +1,4 @@
-//! Actualizarea și afișarea ghidului TV.
+//! Updating and showing the TV guide.
 
 use super::{GuideTarget, MainWindow, hhmm};
 use crate::channel_list::row_of;
@@ -12,8 +12,8 @@ use tvmaxe_core::net;
 impl MainWindow {
     // ---------- Ghid TV ----------
 
-    /// Descarcă sursele EPG (din liste + Preferințe). Fără `force`, doar pe
-    /// cele mai vechi de 12 ore.
+    /// Downloads the EPG sources (from the lists + Preferences). Without `force`, only
+    /// the ones older than 12 hours.
     pub fn refresh_epg(self: &Rc<Self>, force: bool) {
         let now = net::unix_now();
         let urls: Vec<String> = {
@@ -68,7 +68,7 @@ impl MainWindow {
         });
     }
 
-    /// După o actualizare a ghidului, canalul curent poate avea acum o cheie.
+    /// After a guide update, the current channel may now have a key.
     fn retarget_current_epg(&self) {
         let found = {
             let cur = self.current.borrow();
@@ -85,7 +85,7 @@ impl MainWindow {
         self.update_epg_info();
     }
 
-    /// „Acum rulează” în liste + panoul de sub video.
+    /// "Now playing" in the lists + the panel under the video.
     pub fn refresh_epg_view(&self) {
         let current = self
             .db
@@ -141,7 +141,7 @@ impl MainWindow {
         self.epg_box.set_visible(!self.window.is_fullscreen());
     }
 
-    /// Canalul pentru Ghid TV: cel care rulează, altfel cel selectat.
+    /// The channel for the TV guide: the one playing, otherwise the selected one.
     pub fn guide_target(&self) -> Option<GuideTarget> {
         if let Some(c) = self.current.borrow().as_ref() {
             return Some(GuideTarget {
@@ -168,7 +168,7 @@ impl MainWindow {
             .unwrap_or_default()
     }
 
-    /// Există măcar o sursă de ghid configurată?
+    /// Is at least one guide source configured?
     pub fn has_epg_sources(&self) -> bool {
         !self.settings.borrow().extra_epg_urls.is_empty()
             || !self
