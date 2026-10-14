@@ -10,7 +10,7 @@ A from-scratch Rust rebuild of the classic TV-Maxe, with GTK 4 and libmpv.
 
 [![CI](https://github.com/condor2/tv-maxe-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/condor2/tv-maxe-rs/actions/workflows/ci.yml)
 [![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
-![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)
+![Rust 1.92+](https://img.shields.io/badge/rust-1.92%2B-orange.svg)
 ![GTK 4](https://img.shields.io/badge/GTK-4.14%2B-4a86cf.svg)
 
 <img src="docs/screenshot.png" width="800" alt="TV-Maxe main window">
@@ -62,7 +62,7 @@ lists, but it is a complete rewrite and contains no code from the original proje
 
 ### 1. Dependencies
 
-You need Rust 1.88 or newer, GTK 4.14 or newer and libmpv.
+You need Rust 1.92 or newer, GTK 4.14 or newer and libmpv.
 
 | Distribution | Command |
 |---|---|

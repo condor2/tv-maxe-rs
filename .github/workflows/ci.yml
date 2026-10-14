@@ -7,6 +7,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Versiune fixă: un Rust nou aduce lint-uri clippy noi, care altfel ar pica
+  # CI-ul fără nicio schimbare în cod. Se actualizează intenționat, din când în când.
+  RUST_TOOLCHAIN: "1.99.0"
   RUSTFLAGS: -D warnings
 
 jobs:
@@ -21,8 +24,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgtk-4-dev libmpv-dev
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
@@ -58,7 +62,9 @@ jobs:
           # Pentru testul „porneste_sub_locale_non_c” (bug-ul LC_NUMERIC din mpv).
           sudo locale-gen ro_RO.UTF-8
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v2
         with:

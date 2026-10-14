@@ -206,8 +206,8 @@ fn distinct_colors(widget: &gtk::Widget) -> Result<usize, String> {
     let mut buf = vec![0u8; tw * th * 4];
     texture.download(&mut buf, tw * 4);
     let mut seen = std::collections::HashSet::new();
-    for px in buf.chunks_exact(4) {
-        let (b, g, r) = (px[0], px[1], px[2]); // GDK_MEMORY_DEFAULT = B8G8R8A8 premultiplicat
+    // GDK_MEMORY_DEFAULT = B8G8R8A8 premultiplicat.
+    for &[b, g, r, _] in buf.as_chunks::<4>().0 {
         if u16::from(r) + u16::from(g) + u16::from(b) > 60 {
             seen.insert((r >> 6, g >> 6, b >> 6));
         }

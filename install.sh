@@ -12,7 +12,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${PREFIX:-/usr/local}"
 PREFIX="${PREFIX%/}"
-MIN_RUST="1.88"
+MIN_RUST="1.92"
 MIN_GTK="4.14"
 
 BIN="$PREFIX/bin/tvmaxe"
