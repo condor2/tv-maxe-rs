@@ -9,6 +9,7 @@ pub mod formats;
 pub mod i18n;
 pub mod model;
 pub mod net;
+pub mod recording;
 
 pub use db::{Database, EpgIndex, StoredChannel, Subscription};
 pub use error::{Error, Result};

@@ -76,6 +76,8 @@ pub fn setup_app(app: &gtk::Application) {
         ("win.add-channel", &["<Ctrl>n"]),
         ("win.preferences", &["<Ctrl>comma"]),
         ("win.guide", &["<Ctrl>g"]),
+        ("win.recordings", &["<Ctrl>j"]),
+        ("win.record", &["<Ctrl><Shift>r"]),
         ("win.search", &["<Ctrl>f"]),
         ("win.fullscreen", &["F11"]),
         ("win.show-list", &["F9"]),
@@ -127,11 +129,15 @@ fn menu_bar() -> gio::Menu {
     let s2 = gio::Menu::new();
     s2.append(Some(tr("Add channel…")), Some("win.add-channel"));
     s2.append(Some(tr("Save local list…")), Some("win.export-local"));
+    let rec = gio::Menu::new();
+    rec.append(Some(tr("Record current channel")), Some("win.record"));
+    rec.append(Some(tr("Recordings…")), Some("win.recordings"));
     let s3 = gio::Menu::new();
     s3.append(Some(tr("Preferences…")), Some("win.preferences"));
     s3.append(Some(tr("Quit")), Some("app.quit"));
     tvmaxe.append_section(None, &s1);
     tvmaxe.append_section(None, &s2);
+    tvmaxe.append_section(None, &rec);
     tvmaxe.append_section(None, &s3);
 
     let view = gio::Menu::new();
@@ -160,7 +166,9 @@ fn load_css() {
          .channel-title { font-weight: bold; }
          .epg-progress progress, .epg-progress trough { min-height: 4px; }
          .epg-current { background: alpha(@theme_selected_bg_color, 0.18); border-radius: 6px; }
-         .epg-past { opacity: 0.55; }",
+         .epg-past { opacity: 0.55; }
+         .recording-indicator { color: #e01b24; font-weight: bold; }
+         .recording-active { color: #e01b24; }",
     );
     gtk::style_context_add_provider_for_display(
         &gtk::gdk::Display::default().expect("display"),

@@ -19,6 +19,8 @@
 
 #[cfg(feature = "mpv")]
 mod mpv;
+#[cfg(feature = "mpv")]
+pub use mpv::recorder::{Recorder, RecorderState};
 
 #[cfg(not(any(feature = "mpv")))]
 compile_error!("Enable at least one video backend (feature `mpv`).");

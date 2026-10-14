@@ -16,6 +16,7 @@
 //! ```
 
 mod epg;
+mod recordings;
 mod sources;
 
 use crate::channel_list::{ChannelList, ChannelRow, placeholder_icon, row_of};
@@ -50,6 +51,9 @@ pub struct GuideTarget {
     pub kind: Kind,
     pub epg_key: Option<String>,
     pub texture: Option<gdk::Texture>,
+    /// For recording a programme from the guide.
+    pub urls: Vec<String>,
+    pub http: StreamOptions,
 }
 
 pub struct MainWindow {
@@ -95,6 +99,13 @@ pub struct MainWindow {
     settings: RefCell<Settings>,
     epg_index: RefCell<EpgIndex>,
     pub guide_dialog: RefCell<Option<Rc<dialogs::GuideDialog>>>,
+    pub recordings_dialog: RefCell<Option<Rc<dialogs::RecordingsDialog>>>,
+    /// Active recorders, by recording id.
+    recorders: RefCell<std::collections::HashMap<i64, crate::player::Recorder>>,
+    record_btn: gtk::Button,
+    rec_indicator: gtk::Label,
+    /// The user confirmed quitting while recordings were running.
+    quit_confirmed: Cell<bool>,
     logo_queue: RefCell<Vec<String>>,
     logo_seen: RefCell<std::collections::HashSet<String>>,
     logo_inflight: Cell<usize>,
@@ -137,7 +148,7 @@ impl MainWindow {
         left.append(&notebook);
         left.append(&list_status);
 
-        // ---------- Dreapta: video ----------
+        // ---------- Right: video ----------
         let placeholder_image = gtk::Image::builder()
             .pixel_size(96)
             .icon_name("video-display-symbolic")
@@ -235,6 +246,8 @@ impl MainWindow {
         let stop_btn = icon_button("media-playback-stop-symbolic", tr("Stop"));
         let time_label = gtk::Label::new(Some("00:00:00"));
         time_label.add_css_class("numeric");
+        let record_btn = icon_button("media-record-symbolic", tr("Record (Ctrl+Shift+R)"));
+        record_btn.set_action_name(Some("win.record"));
         let full_btn = icon_button("view-fullscreen-symbolic", tr("Fullscreen (F11)"));
         full_btn.set_action_name(Some("win.fullscreen"));
         let volume = gtk::ScaleButton::new(
@@ -259,6 +272,7 @@ impl MainWindow {
         for w in [
             play_btn.upcast_ref::<gtk::Widget>(),
             stop_btn.upcast_ref(),
+            record_btn.upcast_ref(),
             time_label.upcast_ref(),
             spacer.upcast_ref(),
             full_btn.upcast_ref(),
@@ -300,7 +314,18 @@ impl MainWindow {
             .margin_top(4)
             .margin_bottom(4)
             .build();
+        // Shown while something is being recorded; opens the Recordings window.
+        let rec_indicator = gtk::Label::builder().visible(false).build();
+        rec_indicator.add_css_class("recording-indicator");
+        let rec_click = gtk::GestureClick::new();
+        rec_click.connect_released(|g, _, _, _| {
+            if let Some(w) = g.widget() {
+                let _ = w.activate_action("win.recordings", None);
+            }
+        });
+        rec_indicator.add_controller(rec_click);
         statusbar.append(&status_label);
+        statusbar.append(&rec_indicator);
         statusbar.append(&progress);
         let bottom = gtk::Box::new(gtk::Orientation::Vertical, 0);
         bottom.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
@@ -372,6 +397,11 @@ impl MainWindow {
             settings: RefCell::new(settings),
             epg_index: RefCell::new(epg_index),
             guide_dialog: RefCell::default(),
+            recordings_dialog: RefCell::default(),
+            recorders: RefCell::default(),
+            record_btn,
+            rec_indicator,
+            quit_confirmed: Cell::new(false),
             logo_queue: RefCell::default(),
             logo_seen: RefCell::default(),
             logo_inflight: Cell::new(0),
@@ -379,6 +409,7 @@ impl MainWindow {
 
         this.connect_signals(&stop_btn);
         this.install_actions();
+        this.start_recording_scheduler();
         this.import_legacy_userlist();
         this.reload();
         let restored = this.restore_last_channel();
@@ -523,10 +554,16 @@ impl MainWindow {
 
         let w = Rc::downgrade(self);
         self.window.connect_close_request(move |_| {
-            if let Some(w) = w.upgrade() {
-                w.save_state();
-                w.player.stop();
+            let Some(w) = w.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            if w.active_recordings() > 0 && !w.quit_confirmed.get() {
+                w.confirm_quit_while_recording();
+                return glib::Propagation::Stop;
             }
+            w.stop_all_recordings();
+            w.save_state();
+            w.player.stop();
             glib::Propagation::Proceed
         });
     }
@@ -550,6 +587,8 @@ impl MainWindow {
         add("about", |w| dialogs::about(&w.window));
         add("preferences", dialogs::preferences);
         add("guide", dialogs::GuideDialog::present);
+        add("recordings", dialogs::RecordingsDialog::present);
+        add("record", |w| w.record_now());
 
         let delete = gio::SimpleAction::new("delete-channel", Some(glib::VariantTy::INT64));
         let w = Rc::downgrade(self);
@@ -571,6 +610,35 @@ impl MainWindow {
             }
         });
         self.window.add_action(&edit);
+
+        for name in ["record-channel", "schedule-channel"] {
+            let a = gio::SimpleAction::new(name, Some(glib::VariantTy::INT64));
+            let w = Rc::downgrade(self);
+            let schedule = name == "schedule-channel";
+            a.connect_activate(move |_, p| {
+                let (Some(w), Some(id)) = (w.upgrade(), p.and_then(|p| p.get::<i64>())) else {
+                    return;
+                };
+                let Some(obj) = w.item_by_id(id) else { return };
+                let ch = row_of(obj.upcast_ref()).channel.clone();
+                if schedule {
+                    let now = tvmaxe_core::net::unix_now();
+                    let start = now + 60 - now % 60;
+                    let rec = tvmaxe_core::recording::Recording::new(
+                        &ch.name,
+                        ch.kind,
+                        &ch.urls,
+                        &ch.http,
+                        start,
+                        Some(start + 3600),
+                    );
+                    dialogs::schedule_dialog(&w, rec);
+                } else {
+                    w.record_channel_now(&ch.name, ch.kind, &ch.urls, &ch.http);
+                }
+            });
+            self.window.add_action(&a);
+        }
 
         // (channel id, source index): plays the channel from the chosen source.
         let source = gio::SimpleAction::new(
@@ -798,7 +866,45 @@ impl MainWindow {
         }
     }
 
-    // ---------- Meniul canalului (click dreapta) ----------
+    // ---------- Recordings ----------
+
+    /// Plays a finished recording; its parts follow one another.
+    pub fn play_recording(&self, title: &str, files: &[String]) {
+        *self.current.borrow_mut() = Some(Current {
+            channel_id: -1,
+            name: title.to_string(),
+            kind: Kind::Tv,
+            urls: files.to_vec(),
+            detail: tr("Recording").to_string(),
+            texture: None,
+            epg_key: None,
+            http: StreamOptions::default(),
+        });
+        self.update_now_playing();
+        self.update_epg_info();
+        self.player.play(files.to_vec(), StreamOptions::default());
+    }
+
+    /// The schedule form for a programme from the TV guide, with a few
+    /// minutes of margin on both sides.
+    pub fn schedule_programme(
+        self: &Rc<Self>,
+        target: &GuideTarget,
+        p: &tvmaxe_core::epg::Programme,
+    ) {
+        let mut rec = tvmaxe_core::recording::Recording::new(
+            &target.name,
+            target.kind,
+            &target.urls,
+            &target.http,
+            p.start - recordings::EARLY_SECS,
+            Some(p.stop + recordings::LATE_SECS),
+        );
+        rec.title = p.title.clone();
+        dialogs::schedule_dialog(self, rec);
+    }
+
+    // ---------- Channel menu (right-click) ----------
 
     fn item_by_id(&self, id: i64) -> Option<glib::BoxedAnyObject> {
         self.tv.item_by_id(id).or_else(|| self.radio.item_by_id(id))
@@ -838,6 +944,17 @@ impl MainWindow {
             }
             menu.append_section(Some(tr("Source")), &sources);
         }
+
+        let record = gio::Menu::new();
+        for (label, action) in [
+            (tr("Record now"), "win.record-channel"),
+            (tr("Schedule recording…"), "win.schedule-channel"),
+        ] {
+            let item = gio::MenuItem::new(Some(label), None);
+            item.set_action_and_target_value(Some(action), Some(&ch.id.to_variant()));
+            record.append_item(&item);
+        }
+        menu.append_section(None, &record);
 
         if ch.is_local {
             let local = gio::Menu::new();
@@ -881,7 +998,7 @@ impl MainWindow {
         self.update_now_playing();
     }
 
-    // ---------- Diverse ----------
+    // ---------- Misc ----------
 
     pub fn set_status(&self, text: &str) {
         self.status_label.set_label(text);

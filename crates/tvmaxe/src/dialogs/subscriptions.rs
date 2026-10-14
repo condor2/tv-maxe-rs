@@ -7,7 +7,7 @@ use std::rc::{Rc, Weak};
 use tvmaxe_core::Subscription;
 use tvmaxe_core::i18n::{fill, tr};
 
-// ---------- Abonamente ----------
+// ---------- Subscriptions ----------
 
 pub struct SubscriptionsDialog {
     window: gtk::Window,

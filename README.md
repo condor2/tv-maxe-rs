@@ -28,6 +28,7 @@ lists, but it is a complete rewrite and contains no code from the original proje
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Recording](#recording)
 - [Supported list formats](#supported-list-formats)
 - [Language](#language)
 - [Data and settings](#data-and-settings)
@@ -54,6 +55,8 @@ lists, but it is a complete rewrite and contains no code from the original proje
   require them
 - **Smooth playback on slow machines**: switches to mpv's fast scaling on software OpenGL or when too
   many frames are dropped
+- **Recording and scheduler**: record the channel you are watching with one click, or schedule
+  recordings (once, daily or weekly) from the TV guide, the channel menu or the Recordings window
 - **Imports** the old TV-Maxe local list (`~/.tvmaxe/userlist.db`) on first start
 - **English and Romanian** interface, following the system language
 - Works on **Wayland and X11**
@@ -118,6 +121,8 @@ Right-click a channel for more:
 |---|---|
 | Play | Plays the channel from its first source |
 | Source → 1, 2, 3… | Plays a specific URL (shown for channels with several sources). If it fails, the next ones are tried, then the earlier ones; ▶ marks the source that is playing |
+| Record now | Starts recording the channel (until you stop it) |
+| Schedule recording… | Opens the schedule form for the channel |
 | Edit channel… | Changes the name, type and URLs of a channel in *My channels* (one URL per line, in order of preference) |
 | Delete channel | Removes a channel from *My channels* |
 
@@ -134,6 +139,8 @@ overwrite them; add your own version to *My channels* instead.
 | Ctrl+N | Add a channel |
 | Ctrl+, | Preferences |
 | Ctrl+G | TV guide |
+| Ctrl+Shift+R | Record the current channel / stop recording it |
+| Ctrl+J | Recordings |
 | Ctrl+F | Search |
 | F11, double-click on the video | Fullscreen (Esc leaves it) |
 | F9 | Hide or show the channel list |
@@ -143,8 +150,34 @@ overwrite them; add your own version to *My channels* instead.
 
 **TV-Maxe → Preferences…** has hardware decoding, network buffer, connection timeout, video
 quality (*Automatic*, *Best quality*, *Fast*), the User-Agent for lists and streams, extra EPG
-sources, updating the lists at startup, logo downloads and playing the last channel on startup.
-Changes apply immediately.
+sources, the recordings folder, updating the lists at startup, logo downloads and playing the
+last channel on startup. Changes apply immediately.
+
+## Recording
+
+| How | What it does |
+|---|---|
+| **●** button (Ctrl+Shift+R) | Records the channel you are watching until you press it again. The title is the programme on air, when the TV guide knows it |
+| Channel menu → **Record now** | The same, for any channel, without switching to it |
+| TV guide → **●** next to a programme | Schedules that programme, 2 minutes early and 5 minutes late, since broadcasts rarely run exactly on time |
+| Channel menu → **Schedule recording…** | Schedules a recording: date, start, end (an end before the start is the next day) and repeat (once, every day, every week) |
+| **TV-Maxe → Recordings…** (Ctrl+J) | Lists running, scheduled and finished recordings: stop, edit or cancel them, play a finished one in TV-Maxe or show it in its folder |
+
+While something is being recorded, the status bar shows a red **● REC**; click it to open the
+Recordings window. Quitting TV-Maxe during a recording asks first, and keeps what was recorded.
+
+How it works:
+
+- Recordings are written to **`~/Videos/TV-Maxe`** (change it in *Preferences*), as
+  `Channel 2026-10-14 20.30 - Title.ts`.
+- The stream is saved **as it arrives, without re-encoding** (MPEG-TS), by a separate, hidden mpv
+  instance. It does not depend on what you are watching, so you can watch one channel and record
+  another, or record several at once. Each recording opens its own connection to the server: lists
+  that allow a single connection per account cannot play and record at the same time.
+- Like playback, a recording tries the channel's other sources when one fails. If the stream drops
+  in the middle, it reconnects and continues in a new part (`… (2).ts`).
+- **TV-Maxe must be running** for scheduled recordings to start. A recording whose time passed
+  while TV-Maxe was closed is marked *Missed*; a repeating one moves on to its next occurrence.
 
 ## Supported list formats
 
@@ -188,6 +221,7 @@ Everything is stored in one SQLite database, `~/.local/share/tvmaxe/tvmaxe.db`:
 | `channels` | Local copy of the channels, so TV-Maxe starts without internet too |
 | `logos` | Downloaded logos; failures are remembered and not retried on every start |
 | `epg_sources`, `epg_channels`, `epg_programmes` | The downloaded TV guide |
+| `recordings` | Recordings: channel and URLs, start, end, repeat, status and the files written |
 | `settings` | Preferences (`pref.*`), volume, window size, tab and last channel |
 
 ## KDE Plasma
@@ -222,13 +256,15 @@ scripts/integration-tests.sh wayland     # integration tests on headless Weston
 ```
 
 The integration tests run the real application with libmpv and GTK on a virtual display with
-software OpenGL. They need no internet: the video is generated by mpv (`lavfi`) and the HTTP server
-is local.
+software OpenGL. They need no internet: the video is generated by mpv (`lavfi`) or, for the
+recording tests, by `ffmpeg` (H.264/AAC), and the HTTP server is local. Without ffmpeg the recording
+tests are skipped (in CI they are mandatory).
 
 | Test | What it checks |
 |---|---|
 | [`player.rs`](crates/tvmaxe/tests/player.rs) | mpv under a non-C locale; playback **and rendering** in GtkGLArea (a capture of the video area must show the colour bars); fallback URLs; failure when every URL fails; Referer / User-Agent headers; pause and stop |
-| [`ui.rs`](crates/tvmaxe/tests/ui.rs) | Main window and menu; a subscription from a local M3U; playback with a fallback URL; choosing a source; editing a channel in *My channels*; every dialog opened and closed three times; F9; closing the window during playback |
+| [`ui.rs`](crates/tvmaxe/tests/ui.rs) | Main window and menu; a subscription from a local M3U; playback with a fallback URL; choosing a source; editing a channel in *My channels*; the ● button, a scheduled recording, a missed daily one; the schedule form; every dialog opened and closed three times; F9; closing the window during playback |
+| [`recorder.rs`](crates/tvmaxe/tests/recorder.rs) | The recording engine: a usable MPEG-TS file, fallback URLs, failure when every URL fails, reconnecting into a new part (no display needed) |
 | [`translations.rs`](crates/tvmaxe/tests/translations.rs) | Every `tr("…")` has a Romanian translation, and the catalog has no unused entries |
 
 Any GTK warning (for example *"A window is shown after it has been destroyed"*) fails the test.
@@ -247,16 +283,17 @@ crates/tvmaxe-core/          no UI, fully unit-tested
   src/epg.rs                 XMLTV parser (gzip, filtering, name matching)
   src/db.rs                  SQLite storage: subscriptions, channels, logos, guide, settings
   src/net.rs                 downloads of lists, logos and guides (worker threads)
+  src/recording.rs           recordings: model, scheduling rules, file names
   src/i18n.rs, src/i18n/     tr / trn / fill and the Romanian catalog
 crates/tvmaxe/               GTK 4 application
   src/main.rs                the binary: calls tvmaxe::run()
   src/lib.rs                 application, menu and style
-  src/window.rs, window/     main window, playback, subscriptions, logos, guide
+  src/window.rs, window/     main window, playback, subscriptions, logos, guide, recording scheduler
   src/channel_list.rs        TV / Radio tab
-  src/dialogs/               Subscriptions, Add channel, Preferences, TV guide, About
+  src/dialogs/               Subscriptions, Add channel, Preferences, TV guide, Recordings, About
   src/settings.rs            preferences stored in SQLite
   src/player/mod.rs          Player facade and Backend trait
-  src/player/mpv/            libmpv backend rendering into a GtkGLArea
+  src/player/mpv/            libmpv backend rendering into a GtkGLArea; headless recorder
   tests/                     integration and translation tests
 data/                        .desktop file and icon
 install.sh, uninstall.sh     system-wide install / uninstall
@@ -292,7 +329,7 @@ rest of the application stays the same.
 
 ## Roadmap
 
-- [ ] Recording and scheduler
+- [x] Recording and scheduler
 - [ ] Sleep timer
 - [ ] Favourites, keyboard zapping, audio track selection
 - [ ] AUR and Flatpak packages

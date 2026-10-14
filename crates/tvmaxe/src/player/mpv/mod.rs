@@ -2,6 +2,7 @@
 //! (works the same on Wayland and X11).
 
 mod gl;
+pub mod recorder;
 
 use super::{Backend, BackendEvent, BackendHandler, PlaybackSettings, StreamOptions, VideoQuality};
 use gtk::glib;
@@ -273,23 +274,7 @@ impl Backend for MpvBackend {
     }
 
     fn load(&self, url: &str, http: &StreamOptions) -> Result<(), String> {
-        // Set before every URL; a channel without special headers goes back to the
-        // Preferences values. The Referer goes as an extra header so it is not
-        // sent at all (not even empty) when the channel does not need it.
-        let _ = self
-            .mpv
-            .command("change-list", &["http-header-fields", "clr", ""]);
-        if let Some(r) = http.referrer.as_deref().filter(|r| !r.is_empty()) {
-            let _ = self.mpv.command(
-                "change-list",
-                &["http-header-fields", "append", &format!("Referer: {r}")],
-            );
-        }
-        let ua = http
-            .user_agent
-            .clone()
-            .unwrap_or_else(|| self.user_agent.borrow().clone());
-        let _ = self.mpv.set_property("user-agent", ua.as_str());
+        apply_http(self.mpv, http, &self.user_agent.borrow());
         self.loaded.set(true);
         self.buffering.set(None);
         self.drops.set(None);
@@ -352,6 +337,22 @@ fn apply_fast_profile(mpv: &Mpv, fast: &Cell<bool>, why: &str) {
         eprintln!("TV-Maxe: fast video profile ({why})");
         let _ = mpv.command("apply-profile", &["fast"]);
     }
+}
+
+/// Per-channel HTTP headers, set before every URL; a channel without special
+/// headers goes back to `default_ua` (from Preferences). The Referer goes as an
+/// extra header so it is not sent at all (not even empty) when the channel
+/// does not need it.
+fn apply_http(mpv: &Mpv, http: &StreamOptions, default_ua: &str) {
+    let _ = mpv.command("change-list", &["http-header-fields", "clr", ""]);
+    if let Some(r) = http.referrer.as_deref().filter(|r| !r.is_empty()) {
+        let _ = mpv.command(
+            "change-list",
+            &["http-header-fields", "append", &format!("Referer: {r}")],
+        );
+    }
+    let ua = http.user_agent.as_deref().unwrap_or(default_ua);
+    let _ = mpv.set_property("user-agent", ua);
 }
 
 /// `mpv_error` codes (mpv/client.h) → readable messages.

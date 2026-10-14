@@ -226,7 +226,7 @@ pub fn export_local(main: &Rc<MainWindow>) {
     });
 }
 
-// ---------- Despre ----------
+// ---------- About ----------
 
 pub fn about(parent: &gtk::ApplicationWindow) {
     let about = gtk::AboutDialog::builder()

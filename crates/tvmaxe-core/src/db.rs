@@ -5,6 +5,7 @@
 //! Every thread opens its own connection (WAL).
 
 use crate::epg::{Guide, Programme, Wanted, normalize_name};
+use crate::recording::{Recording, Repeat, Status};
 use crate::{Channel, ChannelList, Error, Kind, Logo, Result, StreamOptions};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
@@ -13,9 +14,9 @@ use std::path::Path;
 /// The URL reserved for the local list ("My channels").
 pub const LOCAL_URL: &str = "local:";
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
-/// Versiunea 2: ghidul TV (EPG).
+/// Version 2: the TV guide (EPG).
 const SCHEMA_V2: &str = "
 CREATE TABLE epg_sources (
     url        TEXT PRIMARY KEY,
@@ -44,6 +45,26 @@ CREATE INDEX epg_programmes_by_source ON epg_programmes(source);
 const SCHEMA_V3: &str = "
 ALTER TABLE channels ADD COLUMN referrer TEXT;
 ALTER TABLE channels ADD COLUMN user_agent TEXT;
+";
+
+/// Version 4: recordings (scheduled, running and finished).
+const SCHEMA_V4: &str = "
+CREATE TABLE recordings (
+    id         INTEGER PRIMARY KEY,
+    title      TEXT NOT NULL DEFAULT '',
+    channel    TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    urls       TEXT NOT NULL,              -- JSON array, in order of preference
+    referrer   TEXT,
+    user_agent TEXT,
+    start      INTEGER NOT NULL,           -- Unix seconds
+    stop       INTEGER,                    -- NULL = until stopped by hand
+    repeat     TEXT NOT NULL DEFAULT 'once',
+    status     TEXT NOT NULL DEFAULT 'scheduled',
+    files      TEXT NOT NULL DEFAULT '[]', -- JSON array of written files
+    error      TEXT
+);
+CREATE INDEX recordings_by_start ON recordings(start);
 ";
 
 const SCHEMA: &str = "
@@ -164,11 +185,16 @@ impl Database {
                 "BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"
             ))?;
         }
-        const { assert!(SCHEMA_VERSION == 3, "add the migration for the new version") };
+        if version < 4 {
+            conn.execute_batch(&format!(
+                "BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"
+            ))?;
+        }
+        const { assert!(SCHEMA_VERSION == 4, "add the migration for the new version") };
         Ok(Self { conn })
     }
 
-    // ---------- Abonamente ----------
+    // ---------- Subscriptions ----------
 
     pub fn subscriptions(&self) -> Result<Vec<Subscription>> {
         let mut stmt = self.conn.prepare(
@@ -424,7 +450,7 @@ impl Database {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    // ---------- Ghid TV (EPG) ----------
+    // ---------- TV guide (EPG) ----------
 
     /// EPG addresses declared by the enabled subscriptions (`url-tvg`, `epgurl`).
     pub fn epg_source_urls(&self) -> Result<Vec<String>> {
@@ -576,7 +602,7 @@ impl Database {
         }
     }
 
-    // ---------- Logo-uri ----------
+    // ---------- Logos ----------
 
     /// Logo URLs not looked up yet, from the enabled subscriptions.
     pub fn missing_logo_urls(&self) -> Result<Vec<String>> {
@@ -596,6 +622,110 @@ impl Database {
             params![url, data],
         )?;
         Ok(())
+    }
+
+    // ---------- Recordings ----------
+
+    /// Stores a new recording and returns its id.
+    pub fn add_recording(&self, r: &Recording) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "INSERT INTO recordings
+                 (title, channel, kind, urls, referrer, user_agent, start, stop, repeat, status, files, error)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             RETURNING id",
+            params![
+                r.title,
+                r.channel,
+                r.kind.as_str(),
+                serde_json::to_string(&r.urls).unwrap(),
+                r.http.referrer,
+                r.http.user_agent,
+                r.start,
+                r.stop,
+                r.repeat.as_str(),
+                r.status.as_str(),
+                serde_json::to_string(&r.files).unwrap(),
+                r.error,
+            ],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// Saves every field of an existing recording. Returns `false` if it no
+    /// longer exists.
+    pub fn update_recording(&self, r: &Recording) -> Result<bool> {
+        let n = self.conn.execute(
+            "UPDATE recordings SET title = ?2, channel = ?3, kind = ?4, urls = ?5,
+                 referrer = ?6, user_agent = ?7, start = ?8, stop = ?9, repeat = ?10,
+                 status = ?11, files = ?12, error = ?13
+             WHERE id = ?1",
+            params![
+                r.id,
+                r.title,
+                r.channel,
+                r.kind.as_str(),
+                serde_json::to_string(&r.urls).unwrap(),
+                r.http.referrer,
+                r.http.user_agent,
+                r.start,
+                r.stop,
+                r.repeat.as_str(),
+                r.status.as_str(),
+                serde_json::to_string(&r.files).unwrap(),
+                r.error,
+            ],
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn delete_recording(&self, id: i64) -> Result<bool> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM recordings WHERE id = ?1", [id])?
+            > 0)
+    }
+
+    pub fn recording(&self, id: i64) -> Result<Option<Recording>> {
+        Ok(self.query_recordings("WHERE id = ?1", [id])?.pop())
+    }
+
+    /// Every recording, by start time.
+    pub fn recordings(&self) -> Result<Vec<Recording>> {
+        self.query_recordings("", [])
+    }
+
+    fn query_recordings(
+        &self,
+        filter: &str,
+        args: impl rusqlite::Params,
+    ) -> Result<Vec<Recording>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, title, channel, kind, urls, referrer, user_agent, start, stop,
+                    repeat, status, files, error
+             FROM recordings {filter} ORDER BY start, id"
+        ))?;
+        let rows = stmt.query_map(args, |r| {
+            let urls: String = r.get(4)?;
+            let files: String = r.get(11)?;
+            Ok(Recording {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                channel: r.get(2)?,
+                kind: Kind::parse(&r.get::<_, String>(3)?).unwrap_or(Kind::Tv),
+                urls: serde_json::from_str(&urls).unwrap_or_default(),
+                http: StreamOptions {
+                    referrer: r.get(5)?,
+                    user_agent: r.get(6)?,
+                },
+                start: r.get(7)?,
+                stop: r.get(8)?,
+                repeat: Repeat::parse(&r.get::<_, String>(9)?).unwrap_or_default(),
+                status: Status::parse(&r.get::<_, String>(10)?).unwrap_or(Status::Failed),
+                files: serde_json::from_str(&files).unwrap_or_default(),
+                error: r.get(12)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     // ---------- Settings ----------
@@ -809,6 +939,46 @@ mod tests {
     }
 
     #[test]
+    fn recordings_roundtrip() {
+        let db = Database::open_in_memory().unwrap();
+        let mut r = Recording {
+            id: 0,
+            title: "Știri".into(),
+            channel: "TVR 1".into(),
+            kind: Kind::Tv,
+            urls: vec!["http://a".into(), "http://b".into()],
+            http: StreamOptions {
+                referrer: Some("https://ref/".into()),
+                user_agent: None,
+            },
+            start: 200,
+            stop: Some(300),
+            repeat: Repeat::Weekly,
+            status: Status::Scheduled,
+            files: Vec::new(),
+            error: None,
+        };
+        r.id = db.add_recording(&r).unwrap();
+        let mut manual = r.clone();
+        manual.start = 100;
+        manual.stop = None;
+        manual.repeat = Repeat::Once;
+        manual.id = db.add_recording(&manual).unwrap();
+
+        let all = db.recordings().unwrap();
+        assert_eq!(all, [manual.clone(), r.clone()], "ordered by start");
+
+        r.status = Status::Done;
+        r.files = vec!["/v/a.ts".into(), "/v/a (2).ts".into()];
+        r.error = Some("x".into());
+        assert!(db.update_recording(&r).unwrap());
+        assert_eq!(db.recording(r.id).unwrap().unwrap(), r);
+        assert!(db.delete_recording(r.id).unwrap());
+        assert!(db.recording(r.id).unwrap().is_none());
+        assert!(!db.update_recording(&r).unwrap());
+    }
+
+    #[test]
     fn edit_local_channel_only() {
         let mut db = Database::open_in_memory().unwrap();
         let id = db
@@ -1016,7 +1186,7 @@ mod tests {
             .conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, 4);
         drop(db);
         for ext in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{ext}", p.display()));

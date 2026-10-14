@@ -1,6 +1,7 @@
 //! User preferences, stored in the `settings` table of the SQLite database.
 
 use crate::player::{PlaybackSettings, VideoQuality};
+use std::path::PathBuf;
 use tvmaxe_core::Database;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -14,6 +15,8 @@ pub struct Settings {
     pub autoplay_last: bool,
     /// XMLTV sources added by the user, besides the ones declared by the lists.
     pub extra_epg_urls: Vec<String>,
+    /// Where recordings are written (`None` = the default, see [`Settings::recordings_dir`]).
+    pub recordings_dir: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -24,6 +27,7 @@ impl Default for Settings {
             download_logos: true,
             autoplay_last: false,
             extra_epg_urls: Vec::new(),
+            recordings_dir: None,
         }
     }
 }
@@ -66,7 +70,19 @@ impl Settings {
                 .setting::<String>("pref.epg_urls")
                 .map(|s| parse_url_lines(&s))
                 .unwrap_or_default(),
+            recordings_dir: db
+                .setting::<String>("pref.recordings_dir")
+                .filter(|s| !s.trim().is_empty())
+                .map(PathBuf::from),
         }
+    }
+
+    /// The folder for recordings: the chosen one, or "TV-Maxe" in the user's
+    /// Videos folder (in the home folder if there is none).
+    pub fn recordings_dir(&self) -> PathBuf {
+        self.recordings_dir
+            .clone()
+            .unwrap_or_else(default_recordings_dir)
     }
 
     pub fn save(&self, db: &Database) -> tvmaxe_core::Result<()> {
@@ -80,8 +96,21 @@ impl Settings {
         db.set_setting("pref.download_logos", self.download_logos)?;
         db.set_setting("pref.autoplay_last", self.autoplay_last)?;
         db.set_setting("pref.epg_urls", self.extra_epg_urls.join("\n"))?;
+        db.set_setting(
+            "pref.recordings_dir",
+            self.recordings_dir
+                .as_deref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        )?;
         Ok(())
     }
+}
+
+pub fn default_recordings_dir() -> PathBuf {
+    gtk::glib::user_special_dir(gtk::glib::UserDirectory::Videos)
+        .unwrap_or_else(gtk::glib::home_dir)
+        .join("TV-Maxe")
 }
 
 /// One address per line; empty lines and duplicates are ignored.
@@ -120,6 +149,7 @@ mod tests {
             download_logos: false,
             autoplay_last: true,
             extra_epg_urls: vec!["https://epg/a.xml.gz".into(), "/home/u/b.xml".into()],
+            recordings_dir: Some("/media/tv".into()),
         };
         s.save(&db).unwrap();
         assert_eq!(Settings::load(&db), s);

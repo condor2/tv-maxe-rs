@@ -6,7 +6,7 @@ use gtk::prelude::*;
 use std::rc::{Rc, Weak};
 use tvmaxe_core::i18n::{fill, tr};
 
-// ---------- Ghid TV ----------
+// ---------- TV guide ----------
 
 /// A channel's schedule by day, like the "TV programme" window of TV-Maxe.
 pub struct GuideDialog {
@@ -258,6 +258,19 @@ impl GuideDialog {
                 .build();
             bx.append(&time);
             bx.append(&text);
+            if p.stop > now && !target.urls.is_empty() {
+                let rec = gtk::Button::from_icon_name("media-record-symbolic");
+                rec.set_tooltip_text(Some(tr("Record this programme…")));
+                rec.set_valign(gtk::Align::Center);
+                rec.add_css_class("flat");
+                let (m, t, prog) = (self.main.clone(), target.clone(), p.clone());
+                rec.connect_clicked(move |_| {
+                    if let Some(m) = m.upgrade() {
+                        m.schedule_programme(&t, &prog);
+                    }
+                });
+                bx.append(&rec);
+            }
             let row = gtk::ListBoxRow::builder().child(&bx).build();
             if p.start <= now && now < p.stop {
                 row.add_css_class("epg-current");

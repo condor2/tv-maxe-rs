@@ -10,7 +10,7 @@ use tvmaxe_core::i18n::{fill, tr};
 use tvmaxe_core::net;
 
 impl MainWindow {
-    // ---------- Ghid TV ----------
+    // ---------- TV guide ----------
 
     /// Downloads the EPG sources (from the lists + Preferences). Without `force`, only
     /// the ones older than 12 hours.
@@ -149,6 +149,8 @@ impl MainWindow {
                 kind: c.kind,
                 epg_key: c.epg_key.clone(),
                 texture: c.texture.clone(),
+                urls: c.urls.clone(),
+                http: c.http.clone(),
             });
         }
         let obj = self.current_list().selected()?;
@@ -158,6 +160,8 @@ impl MainWindow {
             kind: row.channel.kind,
             epg_key: row.epg_key.clone(),
             texture: row.texture(),
+            urls: row.channel.urls.clone(),
+            http: row.channel.http.clone(),
         })
     }
 

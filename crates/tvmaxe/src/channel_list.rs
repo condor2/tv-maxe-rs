@@ -16,7 +16,7 @@ pub struct ChannelRow {
     pub subscription: String,
     /// The channel's id in the TV guide, if it was found.
     pub epg_key: Option<String>,
-    /// Titlul emisiunii curente (actualizat periodic).
+    /// Title of the programme on air (updated periodically).
     pub now_title: RefCell<Option<String>>,
     texture: RefCell<Option<gdk::Texture>>,
 }

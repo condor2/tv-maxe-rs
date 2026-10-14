@@ -93,6 +93,41 @@ pub fn preferences(main: &Rc<MainWindow>) {
     let u = update.clone();
     autoplay.connect_active_notify(move |w| u(&|s| s.autoplay_last = w.is_active()));
 
+    // --- Recordings ---
+    let folder_label = gtk::Label::builder()
+        .label(folder_name(&s.recordings_dir()))
+        .ellipsize(gtk::pango::EllipsizeMode::Middle)
+        .max_width_chars(24)
+        .build();
+    let folder = gtk::Button::builder()
+        .child(&folder_label)
+        .valign(gtk::Align::Center)
+        .tooltip_text(s.recordings_dir().to_string_lossy().as_ref())
+        .build();
+    {
+        let update = update.clone();
+        let main_w = Rc::downgrade(main);
+        let label = folder_label.clone();
+        folder.connect_clicked(move |b| {
+            let Some(main) = main_w.upgrade() else { return };
+            let (update, label, b) = (update.clone(), label.clone(), b.clone());
+            let parent = b.root().and_downcast::<gtk::Window>();
+            let dialog = gtk::FileDialog::builder()
+                .title(tr("Recordings folder"))
+                .initial_folder(&gtk::gio::File::for_path(main.settings().recordings_dir()))
+                .build();
+            glib::spawn_future_local(async move {
+                if let Ok(f) = dialog.select_folder_future(parent.as_ref()).await
+                    && let Some(path) = f.path()
+                {
+                    label.set_label(&folder_name(&path));
+                    b.set_tooltip_text(Some(&path.to_string_lossy()));
+                    update(&|s| s.recordings_dir = Some(path.clone()));
+                }
+            });
+        });
+    }
+
     let content = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(18)
@@ -205,6 +240,17 @@ pub fn preferences(main: &Rc<MainWindow>) {
     content.append(&epg_section);
 
     content.append(&section(
+        tr("Recordings"),
+        &[(
+            tr("Recordings folder"),
+            Some(tr(
+                "TV-Maxe must be running for scheduled recordings to start.",
+            )),
+            folder.upcast_ref(),
+        )],
+    ));
+
+    content.append(&section(
         tr("Startup"),
         &[(
             tr("Play the last channel on startup"),
@@ -232,6 +278,7 @@ pub fn preferences(main: &Rc<MainWindow>) {
 
     // Resetting moves the controls; their handlers save the default values.
     let d = Settings::default();
+    let reset = update.clone();
     defaults.connect_clicked(move |_| {
         hwdec.set_active(d.playback.hardware_decoding);
         cache.set_value(f64::from(d.playback.cache_secs));
@@ -242,6 +289,10 @@ pub fn preferences(main: &Rc<MainWindow>) {
         refresh.set_active(d.refresh_on_start);
         logos.set_active(d.download_logos);
         autoplay.set_active(d.autoplay_last);
+        let dir = crate::settings::default_recordings_dir();
+        folder_label.set_label(&folder_name(&dir));
+        folder.set_tooltip_text(Some(&dir.to_string_lossy()));
+        reset(&|s| s.recordings_dir = None);
     });
     let w = win.downgrade();
     close.connect_clicked(move |_| {
@@ -272,6 +323,15 @@ pub fn preferences(main: &Rc<MainWindow>) {
         glib::Propagation::Proceed
     });
     win.present();
+}
+
+/// "~/Videos/TV-Maxe" style label for a folder button.
+fn folder_name(path: &std::path::Path) -> String {
+    let home = glib::home_dir();
+    match path.strip_prefix(&home) {
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
+    }
 }
 
 fn seconds_spin((min, max): (u32, u32), value: u32) -> (gtk::Box, gtk::SpinButton) {

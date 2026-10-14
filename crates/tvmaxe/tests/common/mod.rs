@@ -182,3 +182,35 @@ impl Drop for TempDir {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+
+/// A `seconds`-long MPEG-TS file with H.264 video and AAC audio (recordable,
+/// unlike the raw lavfi sources), or `None` when ffmpeg is not installed.
+/// In CI (`CI` is set) a missing ffmpeg is an error.
+pub fn ts_source(dir: &std::path::Path, seconds: u32) -> Option<std::path::PathBuf> {
+    let out = dir.join(format!("source-{seconds}.ts"));
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+        .arg(format!("testsrc=size=320x240:rate=25:duration={seconds}"))
+        .args(["-f", "lavfi", "-i"])
+        .arg(format!("sine=frequency=440:duration={seconds}"))
+        .args([
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-c:a",
+            "aac",
+            "-f",
+            "mpegts",
+        ])
+        .arg(&out)
+        .status();
+    match status {
+        Ok(s) if s.success() => Some(out),
+        _ if std::env::var_os("CI").is_some() => panic!("ffmpeg is required in CI"),
+        _ => {
+            println!("    (ffmpeg not found: recording part skipped)");
+            None
+        }
+    }
+}

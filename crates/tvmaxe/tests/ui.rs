@@ -20,6 +20,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use tvmaxe::MainWindow;
 use tvmaxe_core::Kind;
+use tvmaxe_core::recording::{Recording, Repeat, Status};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -38,6 +39,8 @@ fn main() {
             }),
             ("choose_source", || Box::pin(choose_source())),
             ("edit_local_channel", || Box::pin(edit_local_channel())),
+            ("recording", || Box::pin(recording())),
+            ("schedule_form", || Box::pin(schedule_form())),
             // Last: closes the main window.
             ("close_while_playing", || Box::pin(close_while_playing())),
         ],
@@ -131,6 +134,7 @@ async fn dialogs_reopen() -> TestResult {
         "preferences",
         "add-channel",
         "about",
+        "recordings",
     ] {
         for round in 1..=3 {
             WidgetExt::activate_action(&f.main.window, &format!("win.{action}"), None)
@@ -373,5 +377,204 @@ async fn edit_local_channel() -> TestResult {
     // Clean-up: the next test closes the window while channel 0 is playing.
     let _ = f.main.db.borrow().delete_local_channel(id);
     f.main.reload();
+    Ok(())
+}
+
+fn recordings_of(f: &Fixture, title: &str) -> Vec<Recording> {
+    f.main
+        .db
+        .borrow()
+        .recordings()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| r.display_title() == title)
+        .collect()
+}
+
+/// Recording end to end: the ● button (start and stop), a scheduled
+/// recording that starts and stops by itself, and a missed daily recording
+/// that is moved to the next day.
+async fn recording() -> TestResult {
+    let f = fixture()?;
+    let dir = TempDir::new("recordings");
+    let Some(src) = common::ts_source(&dir.0, 30) else {
+        return Ok(());
+    };
+    let out = dir.0.join("out");
+    let mut s = f.main.settings();
+    s.recordings_dir = Some(out.clone());
+    f.main.set_settings(s);
+
+    let id = f
+        .main
+        .db
+        .borrow()
+        .add_local_channel(Kind::Tv, "Rec test", src.to_str().unwrap())
+        .map_err(|e| e.to_string())?;
+    f.main.reload();
+
+    // ● while playing: records the current channel until pressed again.
+    WidgetExt::activate_action(
+        &f.main.window,
+        "win.play-source",
+        Some(&(id, 0u32).to_variant()),
+    )
+    .map_err(|e| e.to_string())?;
+    wait_until("playing the source", TIMEOUT, || {
+        f.main.status_text() == "Playing: Rec test"
+    })
+    .await?;
+    WidgetExt::activate_action(&f.main.window, "win.record", None).map_err(|e| e.to_string())?;
+    wait_until("one active recording", TIMEOUT, || {
+        f.main.active_recordings() == 1
+            && recordings_of(&f, "Rec test")
+                .iter()
+                .any(|r| r.status == Status::Recording && !r.files.is_empty())
+    })
+    .await?;
+    glib::timeout_future(Duration::from_secs(2)).await;
+    WidgetExt::activate_action(&f.main.window, "win.record", None).map_err(|e| e.to_string())?;
+    check!(
+        f.main.active_recordings() == 0,
+        "still recording after the second press"
+    );
+    let done = recordings_of(&f, "Rec test");
+    check!(
+        done.len() == 1 && done[0].status == Status::Done && done[0].stop.is_some(),
+        "manual recording: {done:?}"
+    );
+    let file = std::path::Path::new(&done[0].files[0]);
+    check!(
+        file.starts_with(&out)
+            && file
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("Rec test ")
+            && std::fs::metadata(file).map(|m| m.len()).unwrap_or(0) > 10_000,
+        "recorded file: {file:?}"
+    );
+    f.main.player().stop();
+
+    // Scheduled: starts and stops on its own.
+    let now = tvmaxe_core::net::unix_now();
+    let mut r = Recording::new(
+        "Rec test",
+        Kind::Tv,
+        &[src.to_string_lossy().into()],
+        &Default::default(),
+        now,
+        Some(now + 3),
+    );
+    r.title = "Scheduled".into();
+    f.main
+        .db
+        .borrow()
+        .add_recording(&r)
+        .map_err(|e| e.to_string())?;
+    wait_until(
+        "scheduled recording finished",
+        Duration::from_secs(30),
+        || {
+            recordings_of(&f, "Scheduled")
+                .iter()
+                .any(|r| r.status == Status::Done)
+        },
+    )
+    .await
+    .map_err(|e| format!("{e}; {:?}", recordings_of(&f, "Scheduled")))?;
+    let done = &recordings_of(&f, "Scheduled")[0];
+    check!(
+        done.files
+            .iter()
+            .all(|p| std::fs::metadata(p).is_ok_and(|m| m.len() > 0)),
+        "scheduled files: {:?}",
+        done.files
+    );
+
+    // Missed while TV-Maxe was closed; a daily one moves to the next day.
+    let mut r = Recording::new(
+        "Rec test",
+        Kind::Tv,
+        &[src.to_string_lossy().into()],
+        &Default::default(),
+        now - 7200,
+        Some(now - 3600),
+    );
+    r.title = "Daily".into();
+    r.repeat = Repeat::Daily;
+    f.main
+        .db
+        .borrow()
+        .add_recording(&r)
+        .map_err(|e| e.to_string())?;
+    wait_until("missed + rescheduled", TIMEOUT, || {
+        let v = recordings_of(&f, "Daily");
+        v.iter().any(|r| r.status == Status::Missed)
+            && v.iter()
+                .any(|r| r.status == Status::Scheduled && r.start == now - 7200 + 86400)
+    })
+    .await
+    .map_err(|e| format!("{e}; {:?}", recordings_of(&f, "Daily")))?;
+
+    // Clean-up for the tests that follow.
+    for r in f.main.db.borrow().recordings().unwrap_or_default() {
+        let _ = f.main.db.borrow().delete_recording(r.id);
+    }
+    let _ = f.main.db.borrow().delete_local_channel(id);
+    f.main.reload();
+    Ok(())
+}
+
+/// Channel menu → "Schedule recording…": the form opens with the channel and
+/// the next full hour, and "Schedule" stores it.
+async fn schedule_form() -> TestResult {
+    let f = fixture()?;
+    let main: gtk::Window = f.main.window.clone().upcast();
+    let id = f.main.channel_id_at(Kind::Tv, 0).ok_or("no TV channel")?;
+    WidgetExt::activate_action(
+        &f.main.window,
+        "win.schedule-channel",
+        Some(&id.to_variant()),
+    )
+    .map_err(|e| e.to_string())?;
+    wait_until("schedule form", TIMEOUT, || {
+        secondary_windows(&main).iter().any(|w| w.is_mapped())
+    })
+    .await?;
+    let dialog = secondary_windows(&main).remove(0);
+    check!(
+        dialog.title().as_deref() == Some("Schedule recording"),
+        "title: {:?}",
+        dialog.title()
+    );
+    let root: gtk::Widget = dialog.clone().upcast();
+    let entry = descendants::<gtk::Entry>(&root)
+        .into_iter()
+        .next()
+        .ok_or("the Title field is missing")?;
+    entry.set_text("From the form");
+    let save = descendants::<gtk::Button>(&root)
+        .into_iter()
+        .find(|b| b.label().as_deref() == Some("Schedule"))
+        .ok_or("the Schedule button is missing")?;
+    check!(
+        save.is_sensitive(),
+        "Schedule is disabled for a future time"
+    );
+    save.emit_clicked();
+    wait_until("form closes", TIMEOUT, || {
+        secondary_windows(&main).is_empty()
+    })
+    .await?;
+    let recs = recordings_of(&f, "From the form");
+    check!(
+        recs.len() == 1
+            && recs[0].status == Status::Scheduled
+            && recs[0].channel == "Canal test"
+            && recs[0].stop.is_some_and(|s| s - recs[0].start == 3600),
+        "scheduled: {recs:?}"
+    );
+    let _ = f.main.db.borrow().delete_recording(recs[0].id);
     Ok(())
 }
