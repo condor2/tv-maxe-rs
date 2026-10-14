@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=TV-Maxe
+GenericName=Internet TV and Radio
+GenericName[ro]=Televiziune și radio pe internet
+Comment=Watch TV and listen to radio from TV-Maxe and M3U channel lists
+Comment[ro]=Televiziune și radio din liste TV-Maxe și M3U
+Exec=tvmaxe %U
+Icon=TvMaxe
+Terminal=false
+Categories=AudioVideo;Video;TV;Player;GTK;
+MimeType=audio/x-mpegurl;application/vnd.apple.mpegurl;
+Keywords=tv;iptv;radio;m3u;stream;tvmaxe;
+Keywords[ro]=tv;televiziune;iptv;radio;m3u;stream;tvmaxe;
+StartupNotify=true
+StartupWMClass=tvmaxe

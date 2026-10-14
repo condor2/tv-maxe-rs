@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/tvmaxe-core", "crates/tvmaxe"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# let-chains (`if let … && let …`) sunt stabile din 1.88.
+rust-version = "1.88"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/condor2/tv-maxe-rs"
+
+[profile.release]
+lto = "thin"
+strip = true

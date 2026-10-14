@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: fmt, clippy, teste
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependențe de sistem
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libmpv-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: shellcheck
+        run: shellcheck install.sh uninstall.sh scripts/*.sh
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Testele de integrare (player, ui) se sar singure aici: nu există ecran.
+      - name: cargo test
+        run: cargo test --workspace
+
+  integration:
+    name: integrare (${{ matrix.display }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        display: [x11, wayland]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependențe de sistem
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libmpv-dev libgl1-mesa-dri xvfb xauth weston locales
+          # Pentru testul „porneste_sub_locale_non_c” (bug-ul LC_NUMERIC din mpv).
+          sudo locale-gen ro_RO.UTF-8
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: integration
+
+      - name: Teste libmpv + GTK pe ${{ matrix.display }}
+        env:
+          TVMAXE_TEST_CAPTURE: ${{ runner.temp }}/captura-video.png
+          TVMAXE_MPV_LOG: ${{ runner.temp }}/mpv.log
+        run: scripts/integration-tests.sh ${{ matrix.display }}
+
+      - name: Captura video și jurnalul mpv
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integrare-${{ matrix.display }}
+          path: |
+            ${{ runner.temp }}/captura-video.png
+            ${{ runner.temp }}/mpv.log
+          if-no-files-found: ignore

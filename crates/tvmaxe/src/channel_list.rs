@@ -1,0 +1,587 @@
+//! Un tab din stânga („Canale TV” / „Canale radio”), ca în TV-Maxe:
+//! „Listă de canale:” + selector de abonament, căutare, listă cu logo și nume.
+
+use gtk::prelude::*;
+use gtk::{gdk, gio, glib};
+use std::cell::RefCell;
+use std::rc::Rc;
+use tvmaxe_core::i18n::{fill, tr};
+use tvmaxe_core::{Kind, StoredChannel, Subscription};
+
+pub const LOGO_SIZE: i32 = 24;
+
+/// Un rând din listă. Logo-ul se decodează leneș, la prima afișare.
+pub struct ChannelRow {
+    pub channel: StoredChannel,
+    pub subscription: String,
+    /// Id-ul canalului în ghidul TV, dacă a fost găsit.
+    pub epg_key: Option<String>,
+    /// Titlul emisiunii curente (actualizat periodic).
+    pub now_title: RefCell<Option<String>>,
+    texture: RefCell<Option<gdk::Texture>>,
+}
+
+impl ChannelRow {
+    pub fn new(channel: StoredChannel, subscription: String, epg_key: Option<String>) -> Self {
+        Self {
+            channel,
+            subscription,
+            epg_key,
+            now_title: RefCell::default(),
+            texture: RefCell::default(),
+        }
+    }
+
+    pub fn set_texture(&self, t: gdk::Texture) {
+        *self.texture.borrow_mut() = Some(t);
+    }
+
+    /// Logo-ul trebuie descărcat (nu e în bază și nu a eșuat anterior)?
+    pub fn needs_logo(&self) -> Option<&str> {
+        let c = &self.channel;
+        (c.logo.is_none() && !c.logo_failed && self.texture.borrow().is_none())
+            .then_some(c.logo_url.as_deref())
+            .flatten()
+    }
+
+    pub fn texture(&self) -> Option<gdk::Texture> {
+        if self.texture.borrow().is_none() {
+            let bytes = self.channel.logo.as_ref()?;
+            let tex = gdk::Texture::from_bytes(&glib::Bytes::from(bytes)).ok()?;
+            *self.texture.borrow_mut() = Some(tex);
+        }
+        self.texture.borrow().clone()
+    }
+}
+
+pub fn row_of(obj: &glib::Object) -> std::cell::Ref<'_, ChannelRow> {
+    obj.downcast_ref::<glib::BoxedAnyObject>()
+        .expect("BoxedAnyObject")
+        .borrow::<ChannelRow>()
+}
+
+type Callback = Box<dyn Fn(&ChannelRow)>;
+type LogoCallback = Box<dyn Fn(&str)>;
+/// Click dreapta pe un rând: (widget, x, y, rând).
+type MenuCallback = Box<dyn Fn(&gtk::Widget, f64, f64, &ChannelRow)>;
+
+pub struct ChannelList {
+    pub kind: Kind,
+    pub root: gtk::Box,
+    store: gio::ListStore,
+    filter: gtk::CustomFilter,
+    selection: gtk::SingleSelection,
+    list_view: gtk::ListView,
+    source: gtk::DropDown,
+    search: gtk::SearchEntry,
+    /// id-urile abonamentelor din selector (index 0 = „Toate listele”).
+    source_ids: RefCell<Vec<i64>>,
+    stack: gtk::Stack,
+    on_activate: RefCell<Option<Callback>>,
+    /// Rândurile create de fabrică (refolosite la derulare).
+    items: RefCell<Vec<glib::WeakRef<gtk::ListItem>>>,
+    /// Filtrul pe grup (`group-title`: țară, categorie…); index 0 = toate.
+    group: gtk::DropDown,
+    group_box: gtk::Box,
+    group_names: RefCell<Vec<String>>,
+    /// Cerere de logo pentru un rând afișat (încărcare la cerere).
+    need_logo: RefCell<Option<LogoCallback>>,
+    on_menu: RefCell<Option<MenuCallback>>,
+}
+
+impl ChannelList {
+    pub fn new(kind: Kind) -> Rc<Self> {
+        let source = gtk::DropDown::from_strings(&[tr("All lists")]);
+        source.set_hexpand(true);
+        let source_box = gtk::Box::builder().spacing(6).build();
+        let source_label = gtk::Label::new(Some(tr("Channel list:")));
+        source_label.set_width_chars(15);
+        source_label.set_xalign(0.0);
+        source_box.append(&source_label);
+        source_box.append(&source);
+
+        let group = gtk::DropDown::from_strings(&[tr("All groups")]);
+        group.set_hexpand(true);
+        group.set_enable_search(true);
+        group.set_expression(Some(gtk::PropertyExpression::new(
+            gtk::StringObject::static_type(),
+            None::<&gtk::Expression>,
+            "string",
+        )));
+        let group_box = gtk::Box::builder().spacing(6).visible(false).build();
+        let group_label = gtk::Label::new(Some(tr("Group:")));
+        group_label.set_width_chars(15);
+        group_label.set_xalign(0.0);
+        group_box.append(&group_label);
+        group_box.append(&group);
+
+        let search = gtk::SearchEntry::builder()
+            .placeholder_text(tr("Search channel"))
+            .build();
+
+        let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+        let filter = gtk::CustomFilter::new(|_| true);
+        let filtered = gtk::FilterListModel::new(Some(store.clone()), Some(filter.clone()));
+        let selection = gtk::SingleSelection::builder()
+            .model(&filtered)
+            .autoselect(false)
+            .can_unselect(true)
+            .build();
+
+        let list_view = gtk::ListView::builder().model(&selection).build();
+        let scrolled = gtk::ScrolledWindow::builder()
+            .child(&list_view)
+            .vexpand(true)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .has_frame(true)
+            .build();
+
+        let empty = gtk::Label::builder()
+            .label(match kind {
+                Kind::Tv => tr("No TV channels.\n\nAdd a list from\nTV-Maxe → Subscriptions…"),
+                Kind::Radio => {
+                    tr("No radio stations.\n\nAdd a list from\nTV-Maxe → Subscriptions…")
+                }
+            })
+            .justify(gtk::Justification::Center)
+            .vexpand(true)
+            .build();
+        empty.add_css_class("dim-label");
+
+        let stack = gtk::Stack::new();
+        stack.add_named(&scrolled, Some("list"));
+        stack.add_named(&empty, Some("empty"));
+
+        let root = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .margin_top(6)
+            .margin_bottom(6)
+            .margin_start(6)
+            .margin_end(6)
+            .build();
+        root.append(&source_box);
+        root.append(&group_box);
+        root.append(&search);
+        root.append(&stack);
+
+        let this = Rc::new(Self {
+            kind,
+            root,
+            store,
+            filter,
+            selection,
+            list_view,
+            source,
+            search,
+            source_ids: RefCell::default(),
+            stack,
+            on_activate: RefCell::default(),
+            items: RefCell::default(),
+            group,
+            group_box,
+            group_names: RefCell::default(),
+            need_logo: RefCell::default(),
+            on_menu: RefCell::default(),
+        });
+        this.install_factory();
+        this.install_filter();
+
+        // Dublu-click / Enter pe canal → redare.
+        let weak = Rc::downgrade(&this);
+        this.list_view.connect_activate(move |lv, pos| {
+            let Some(this) = weak.upgrade() else { return };
+            let Some(obj) = lv.model().and_then(|m| m.item(pos)) else {
+                return;
+            };
+            if let Some(cb) = this.on_activate.borrow().as_ref() {
+                cb(&row_of(&obj));
+            }
+        });
+
+        this.update_empty();
+        this
+    }
+
+    fn install_factory(self: &Rc<Self>) {
+        let factory = gtk::SignalListItemFactory::new();
+        let weak = Rc::downgrade(self);
+        factory.connect_setup(move |_, item| {
+            let item = item.downcast_ref::<gtk::ListItem>().unwrap();
+            if let Some(this) = weak.upgrade() {
+                this.items.borrow_mut().push(item.downgrade());
+            }
+            let image = gtk::Image::builder().pixel_size(LOGO_SIZE).build();
+            let label = gtk::Label::builder()
+                .xalign(0.0)
+                .hexpand(true)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .build();
+            // Sub nume: emisiunea curentă din ghidul TV.
+            let now = gtk::Label::builder()
+                .xalign(0.0)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .visible(false)
+                .build();
+            now.add_css_class("dim-label");
+            now.add_css_class("caption");
+            let text = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .valign(gtk::Align::Center)
+                .hexpand(true)
+                .build();
+            text.append(&label);
+            text.append(&now);
+            let row = gtk::Box::builder()
+                .spacing(8)
+                .margin_top(3)
+                .margin_bottom(3)
+                .margin_start(4)
+                .build();
+            row.append(&image);
+            row.append(&text);
+
+            // Click dreapta → meniul canalului (construit de fereastră).
+            let click = gtk::GestureClick::builder().button(3).build();
+            let item_w = item.downgrade();
+            let weak = weak.clone();
+            click.connect_pressed(move |g, _, x, y| {
+                let (Some(this), Some(item)) = (weak.upgrade(), item_w.upgrade()) else {
+                    return;
+                };
+                let Some(obj) = item.item() else { return };
+                this.selection.set_selected(item.position());
+                if let (Some(cb), Some(w)) = (this.on_menu.borrow().as_ref(), g.widget()) {
+                    cb(&w, x, y, &row_of(&obj));
+                    g.set_state(gtk::EventSequenceState::Claimed);
+                }
+            });
+            row.add_controller(click);
+            item.set_child(Some(&row));
+        });
+        let weak = Rc::downgrade(self);
+        factory.connect_bind(move |_, item| {
+            let item = item.downcast_ref::<gtk::ListItem>().unwrap();
+            bind_row(item);
+            if let (Some(this), Some(obj)) = (weak.upgrade(), item.item())
+                && let Some(url) = row_of(&obj).needs_logo()
+                && let Some(cb) = this.need_logo.borrow().as_ref()
+            {
+                cb(url);
+            }
+        });
+        self.list_view.set_factory(Some(&factory));
+    }
+
+    /// Filtrare: abonamentul ales + text căutat (nume sau categorie).
+    fn install_filter(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.filter.set_filter_func(move |obj| {
+            let Some(this) = weak.upgrade() else {
+                return true;
+            };
+            let row = row_of(obj);
+            let sel = this.source.selected() as usize;
+            if sel > 0
+                && this.source_ids.borrow().get(sel).copied() != Some(row.channel.subscription_id)
+            {
+                return false;
+            }
+            let g = this.group.selected() as usize;
+            if g > 0
+                && row.channel.group.as_deref()
+                    != this.group_names.borrow().get(g).map(String::as_str)
+            {
+                return false;
+            }
+            let q = fold(this.search.text().trim());
+            q.is_empty()
+                || fold(&row.channel.name).contains(&q)
+                || row
+                    .channel
+                    .group
+                    .as_deref()
+                    .is_some_and(|g| fold(g).contains(&q))
+        });
+        let f = self.filter.clone();
+        self.search
+            .connect_search_changed(move |_| f.changed(gtk::FilterChange::Different));
+        let weak = Rc::downgrade(self);
+        self.source.connect_selected_notify(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.rebuild_groups();
+                this.filter.changed(gtk::FilterChange::Different);
+            }
+        });
+        let f = self.filter.clone();
+        self.group
+            .connect_selected_notify(move |_| f.changed(gtk::FilterChange::Different));
+    }
+
+    /// Grupurile din lista aleasă, sortate; ascuns dacă nu are rost.
+    fn rebuild_groups(&self) {
+        let sel = self.source.selected() as usize;
+        let sub = (sel > 0)
+            .then(|| self.source_ids.borrow().get(sel).copied())
+            .flatten();
+        let mut groups = std::collections::BTreeSet::new();
+        for i in 0..self.store.n_items() {
+            let obj = self.store.item(i).unwrap();
+            let row = row_of(&obj);
+            if sub.is_none_or(|s| s == row.channel.subscription_id)
+                && let Some(g) = &row.channel.group
+            {
+                groups.insert(g.clone());
+            }
+        }
+        let current = self
+            .group_names
+            .borrow()
+            .get(self.group.selected() as usize)
+            .cloned();
+        let mut names = vec![tr("All groups").to_string()];
+        names.extend(groups);
+        let keep = current
+            .and_then(|c| names.iter().position(|n| *n == c))
+            .unwrap_or(0);
+        let strs: Vec<&str> = names.iter().map(String::as_str).collect();
+        self.group_box.set_visible(names.len() > 2);
+        *self.group_names.borrow_mut() = names.clone();
+        self.group.set_model(Some(&gtk::StringList::new(&strs)));
+        self.group.set_selected(keep as u32);
+    }
+
+    pub fn connect_context_menu(&self, f: impl Fn(&gtk::Widget, f64, f64, &ChannelRow) + 'static) {
+        *self.on_menu.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Rândul canalului cu id-ul din bază, dacă e în această listă.
+    pub fn item_by_id(&self, id: i64) -> Option<glib::BoxedAnyObject> {
+        (0..self.store.n_items())
+            .filter_map(|i| self.store.item(i).and_downcast::<glib::BoxedAnyObject>())
+            .find(|obj| row_of(obj.upcast_ref()).channel.id == id)
+    }
+
+    pub fn connect_need_logo(&self, f: impl Fn(&str) + 'static) {
+        *self.need_logo.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// A sosit un logo: îl pune pe toate rândurile care îl folosesc.
+    pub fn set_logo(&self, url: &str, texture: &gdk::Texture) {
+        let mut changed = false;
+        for i in 0..self.store.n_items() {
+            let obj = self.store.item(i).unwrap();
+            let row = row_of(&obj);
+            if row.channel.logo_url.as_deref() == Some(url) {
+                row.set_texture(texture.clone());
+                changed = true;
+            }
+        }
+        if changed {
+            self.refresh_visible();
+        }
+    }
+
+    /// Re-completează doar rândurile afișate (modelul rămâne neatins).
+    pub fn refresh_visible(&self) {
+        self.items.borrow_mut().retain(|w| w.upgrade().is_some());
+        let items: Vec<gtk::ListItem> = self
+            .items
+            .borrow()
+            .iter()
+            .filter_map(|w| w.upgrade())
+            .collect();
+        for item in items {
+            bind_row(&item);
+            if let Some(obj) = item.item()
+                && let Some(url) = row_of(&obj).needs_logo()
+                && let Some(cb) = self.need_logo.borrow().as_ref()
+            {
+                cb(url);
+            }
+        }
+    }
+
+    pub fn connect_activate(&self, f: impl Fn(&ChannelRow) + 'static) {
+        *self.on_activate.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Reîncarcă selectorul de abonamente, păstrând selecția dacă se poate.
+    pub fn set_subscriptions(&self, subs: &[Subscription]) {
+        let current = self
+            .source_ids
+            .borrow()
+            .get(self.source.selected() as usize)
+            .copied();
+        let subs: Vec<&Subscription> = subs
+            .iter()
+            .filter(|s| {
+                s.enabled
+                    && if self.kind == Kind::Tv {
+                        s.tv_count > 0
+                    } else {
+                        s.radio_count > 0
+                    }
+            })
+            .collect();
+        let mut names = vec![tr("All lists")];
+        names.extend(subs.iter().map(|s| s.display_name()));
+        let mut ids = vec![0];
+        ids.extend(subs.iter().map(|s| s.id));
+        let keep = current
+            .and_then(|c| ids.iter().position(|&i| i == c))
+            .unwrap_or(0);
+        *self.source_ids.borrow_mut() = ids;
+        self.source.set_model(Some(&gtk::StringList::new(&names)));
+        self.source.set_selected(keep as u32);
+    }
+
+    /// Înlocuiește canalele, păstrând canalul selectat (după URL) dacă există.
+    pub fn set_channels(&self, rows: Vec<ChannelRow>) {
+        let selected_url = self
+            .selected()
+            .and_then(|o| row_of(o.upcast_ref()).channel.urls.first().cloned());
+        let items: Vec<glib::BoxedAnyObject> =
+            rows.into_iter().map(glib::BoxedAnyObject::new).collect();
+        self.store.splice(0, self.store.n_items(), &items);
+        self.rebuild_groups();
+        self.filter.changed(gtk::FilterChange::Different);
+        self.update_empty();
+        if let Some(url) = selected_url {
+            self.select_by_url(&url);
+        }
+    }
+
+    /// Actualizează „acum rulează” pe fiecare rând și redesenează lista.
+    pub fn update_now(&self, title_for: impl Fn(&str) -> Option<String>) {
+        for i in 0..self.store.n_items() {
+            let obj = self.store.item(i).unwrap();
+            let row = row_of(&obj);
+            let title = row.epg_key.as_deref().and_then(&title_for);
+            *row.now_title.borrow_mut() = title;
+        }
+        // Doar rândurile afișate; modelul rămâne neatins (selecția și derularea la fel).
+        self.refresh_visible();
+    }
+
+    pub fn epg_key_for_url(&self, url: &str) -> Option<String> {
+        (0..self.store.n_items()).find_map(|i| {
+            let obj = self.store.item(i)?;
+            let row = row_of(&obj);
+            (row.channel.urls.first().map(String::as_str) == Some(url))
+                .then(|| row.epg_key.clone())
+                .flatten()
+        })
+    }
+
+    /// Rândul de pe poziția `i` din lista completă (nefiltrată).
+    pub fn item(&self, i: u32) -> Option<glib::BoxedAnyObject> {
+        self.store.item(i).and_downcast()
+    }
+
+    pub fn len(&self) -> u32 {
+        self.store.n_items()
+    }
+
+    fn update_empty(&self) {
+        self.stack
+            .set_visible_child_name(if self.store.n_items() == 0 {
+                "empty"
+            } else {
+                "list"
+            });
+    }
+
+    pub fn selected(&self) -> Option<glib::BoxedAnyObject> {
+        self.selection.selected_item().and_downcast()
+    }
+
+    /// Selectează canalul cu primul URL dat și îl aduce în vizor.
+    pub fn select_by_url(&self, url: &str) -> bool {
+        let model = self.selection.model().unwrap();
+        let found = (0..model.n_items()).find(|&i| {
+            row_of(&model.item(i).unwrap())
+                .channel
+                .urls
+                .first()
+                .map(String::as_str)
+                == Some(url)
+        });
+        if let Some(i) = found {
+            self.list_view.scroll_to(
+                i,
+                gtk::ListScrollFlags::SELECT | gtk::ListScrollFlags::FOCUS,
+                None,
+            );
+        }
+        found.is_some()
+    }
+
+    pub fn focus_search(&self) {
+        self.search.grab_focus();
+    }
+}
+
+/// Completează widget-urile unui rând din datele lui (folosit la bind și la
+/// actualizarea periodică a ghidului).
+fn bind_row(item: &gtk::ListItem) {
+    let Some(obj) = item.item() else { return };
+    let row = row_of(&obj);
+    let bx = item.child().and_downcast::<gtk::Box>().unwrap();
+    let image = bx.first_child().and_downcast::<gtk::Image>().unwrap();
+    let text = image.next_sibling().and_downcast::<gtk::Box>().unwrap();
+    let label = text.first_child().and_downcast::<gtk::Label>().unwrap();
+    let now = label.next_sibling().and_downcast::<gtk::Label>().unwrap();
+    label.set_label(&row.channel.name);
+    match row.now_title.borrow().as_deref() {
+        Some(t) => {
+            now.set_label(t);
+            now.set_visible(true);
+        }
+        None => now.set_visible(false),
+    }
+    match row.texture() {
+        Some(t) => image.set_paintable(Some(&t)),
+        None => image.set_icon_name(Some(placeholder_icon(row.channel.kind))),
+    }
+    let mut tip = match &row.channel.group {
+        Some(g) => format!("{}\n{g} · {}", row.channel.name, row.subscription),
+        None => format!("{}\n{}", row.channel.name, row.subscription),
+    };
+    if let Some(t) = row.now_title.borrow().as_deref() {
+        tip.push('\n');
+        tip.push_str(&fill(tr("Now: %1"), &[&t]));
+    }
+    bx.set_tooltip_text(Some(&tip));
+}
+
+/// Text pentru căutare: litere mici, fără diacritice („Știri” ↔ „stiri”).
+fn fold(s: &str) -> String {
+    s.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'ă' | 'â' => 'a',
+            'î' => 'i',
+            'ș' | 'ş' => 's',
+            'ț' | 'ţ' => 't',
+            other => other,
+        })
+        .collect()
+}
+
+pub fn placeholder_icon(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Tv => "video-display-symbolic",
+        Kind::Radio => "audio-x-generic-symbolic",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn search_ignores_diacritics() {
+        assert!(super::fold("Știri Pro TV").contains(&super::fold("stiri")));
+        assert!(super::fold("Antena 3 CNN").contains("antena"));
+        assert_eq!(super::fold("ÎNȚELEPCIUNE"), "intelepciune");
+    }
+}
