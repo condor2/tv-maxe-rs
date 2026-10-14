@@ -6,6 +6,7 @@ mod channel_list;
 mod dialogs;
 pub mod player;
 mod settings;
+pub mod sleep;
 mod window;
 
 use gtk::prelude::*;
@@ -78,6 +79,7 @@ pub fn setup_app(app: &gtk::Application) {
         ("win.guide", &["<Ctrl>g"]),
         ("win.recordings", &["<Ctrl>j"]),
         ("win.record", &["<Ctrl><Shift>r"]),
+        ("win.sleep-timer", &["<Ctrl>t"]),
         ("win.search", &["<Ctrl>f"]),
         ("win.fullscreen", &["F11"]),
         ("win.show-list", &["F9"]),
@@ -132,6 +134,7 @@ fn menu_bar() -> gio::Menu {
     let rec = gio::Menu::new();
     rec.append(Some(tr("Record current channel")), Some("win.record"));
     rec.append(Some(tr("Recordings…")), Some("win.recordings"));
+    rec.append(Some(tr("Sleep timer…")), Some("win.sleep-timer"));
     let s3 = gio::Menu::new();
     s3.append(Some(tr("Preferences…")), Some("win.preferences"));
     s3.append(Some(tr("Quit")), Some("app.quit"));

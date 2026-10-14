@@ -29,6 +29,7 @@ lists, but it is a complete rewrite and contains no code from the original proje
 - [Installation](#installation)
 - [Usage](#usage)
 - [Recording](#recording)
+- [Sleep timer](#sleep-timer)
 - [Supported list formats](#supported-list-formats)
 - [Language](#language)
 - [Data and settings](#data-and-settings)
@@ -57,6 +58,8 @@ lists, but it is a complete rewrite and contains no code from the original proje
   many frames are dropped
 - **Recording and scheduler**: record the channel you are watching with one click, or schedule
   recordings (once, daily or weekly) from the TV guide, the channel menu or the Recordings window
+- **Sleep timer**: stops playback, quits, suspends or shuts down the computer after a while or at
+  the end of the programme, with the volume fading out
 - **Imports** the old TV-Maxe local list (`~/.tvmaxe/userlist.db`) on first start
 - **English and Romanian** interface, following the system language
 - Works on **Wayland and X11**
@@ -141,6 +144,7 @@ overwrite them; add your own version to *My channels* instead.
 | Ctrl+G | TV guide |
 | Ctrl+Shift+R | Record the current channel / stop recording it |
 | Ctrl+J | Recordings |
+| Ctrl+T | Sleep timer |
 | Ctrl+F | Search |
 | F11, double-click on the video | Fullscreen (Esc leaves it) |
 | F9 | Hide or show the channel list |
@@ -178,6 +182,19 @@ How it works:
   in the middle, it reconnects and continues in a new part (`… (2).ts`).
 - **TV-Maxe must be running** for scheduled recordings to start. A recording whose time passed
   while TV-Maxe was closed is marked *Missed*; a repeating one moves on to its next occurrence.
+
+## Sleep timer
+
+**TV-Maxe → Sleep timer…** (Ctrl+T) sets what happens and when:
+
+- **After:** a number of minutes (one click for 15, 30, 45, 60, 90 or 120), or the end of the programme
+  on air when the TV guide knows it.
+- **Then:** stop playback, quit TV-Maxe, suspend the computer or shut it down. Suspend and shut down
+  go through logind and are offered only when the system allows them.
+
+The countdown (**☾ 29:41**) stays in the status bar; click it to change or cancel the timer. The
+volume fades out during the last 30 seconds. A running recording is never cut off: if one is in
+progress when the time is up, TV-Maxe only stops playback and stays open.
 
 ## Supported list formats
 
@@ -263,7 +280,7 @@ tests are skipped (in CI they are mandatory).
 | Test | What it checks |
 |---|---|
 | [`player.rs`](crates/tvmaxe/tests/player.rs) | mpv under a non-C locale; playback **and rendering** in GtkGLArea (a capture of the video area must show the colour bars); fallback URLs; failure when every URL fails; Referer / User-Agent headers; pause and stop |
-| [`ui.rs`](crates/tvmaxe/tests/ui.rs) | Main window and menu; a subscription from a local M3U; playback with a fallback URL; choosing a source; editing a channel in *My channels*; the ● button, a scheduled recording, a missed daily one; the schedule form; every dialog opened and closed three times; F9; closing the window during playback |
+| [`ui.rs`](crates/tvmaxe/tests/ui.rs) | Main window and menu; a subscription from a local M3U; playback with a fallback URL; choosing a source; editing a channel in *My channels*; the ● button, a scheduled recording, a missed daily one; the schedule form; the sleep timer (and that it never ends a recording); every dialog opened and closed three times; F9; closing the window during playback |
 | [`recorder.rs`](crates/tvmaxe/tests/recorder.rs) | The recording engine: a usable MPEG-TS file, fallback URLs, failure when every URL fails, reconnecting into a new part (no display needed) |
 | [`translations.rs`](crates/tvmaxe/tests/translations.rs) | Every `tr("…")` has a Romanian translation, and the catalog has no unused entries |
 
@@ -288,10 +305,11 @@ crates/tvmaxe-core/          no UI, fully unit-tested
 crates/tvmaxe/               GTK 4 application
   src/main.rs                the binary: calls tvmaxe::run()
   src/lib.rs                 application, menu and style
-  src/window.rs, window/     main window, playback, subscriptions, logos, guide, recording scheduler
+  src/window.rs, window/     main window, playback, subscriptions, logos, guide, recording scheduler, sleep timer
   src/channel_list.rs        TV / Radio tab
-  src/dialogs/               Subscriptions, Add channel, Preferences, TV guide, Recordings, About
+  src/dialogs/               Subscriptions, Add channel, Preferences, TV guide, Recordings, Sleep timer, About
   src/settings.rs            preferences stored in SQLite
+  src/sleep.rs               sleep timer: actions, volume fade, countdown text
   src/player/mod.rs          Player facade and Backend trait
   src/player/mpv/            libmpv backend rendering into a GtkGLArea; headless recorder
   tests/                     integration and translation tests
@@ -330,7 +348,7 @@ rest of the application stays the same.
 ## Roadmap
 
 - [x] Recording and scheduler
-- [ ] Sleep timer
+- [x] Sleep timer
 - [ ] Favourites, keyboard zapping, audio track selection
 - [ ] AUR and Flatpak packages
 - [ ] More interface languages

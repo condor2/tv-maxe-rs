@@ -1,0 +1,4 @@
+# Keep LF line endings in the repository and in checkouts, also on Windows
+# (Git for Windows would otherwise turn the shell scripts into CRLF).
+* text=auto eol=lf
+*.png binary

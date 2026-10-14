@@ -17,7 +17,10 @@
 
 mod epg;
 mod recordings;
+mod sleep;
 mod sources;
+
+pub use sleep::sleep_action_available;
 
 use crate::channel_list::{ChannelList, ChannelRow, placeholder_icon, row_of};
 use crate::dialogs;
@@ -106,6 +109,8 @@ pub struct MainWindow {
     rec_indicator: gtk::Label,
     /// The user confirmed quitting while recordings were running.
     quit_confirmed: Cell<bool>,
+    sleep: RefCell<Option<sleep::SleepTimer>>,
+    sleep_indicator: gtk::Label,
     logo_queue: RefCell<Vec<String>>,
     logo_seen: RefCell<std::collections::HashSet<String>>,
     logo_inflight: Cell<usize>,
@@ -324,7 +329,18 @@ impl MainWindow {
             }
         });
         rec_indicator.add_controller(rec_click);
+        // Sleep timer countdown; opens the Sleep timer window.
+        let sleep_indicator = gtk::Label::builder().visible(false).build();
+        sleep_indicator.add_css_class("numeric");
+        let sleep_click = gtk::GestureClick::new();
+        sleep_click.connect_released(|g, _, _, _| {
+            if let Some(w) = g.widget() {
+                let _ = w.activate_action("win.sleep-timer", None);
+            }
+        });
+        sleep_indicator.add_controller(sleep_click);
         statusbar.append(&status_label);
+        statusbar.append(&sleep_indicator);
         statusbar.append(&rec_indicator);
         statusbar.append(&progress);
         let bottom = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -402,6 +418,8 @@ impl MainWindow {
             record_btn,
             rec_indicator,
             quit_confirmed: Cell::new(false),
+            sleep: RefCell::default(),
+            sleep_indicator,
             logo_queue: RefCell::default(),
             logo_seen: RefCell::default(),
             logo_inflight: Cell::new(0),
@@ -589,6 +607,7 @@ impl MainWindow {
         add("guide", dialogs::GuideDialog::present);
         add("recordings", dialogs::RecordingsDialog::present);
         add("record", |w| w.record_now());
+        add("sleep-timer", dialogs::sleep_timer);
 
         let delete = gio::SimpleAction::new("delete-channel", Some(glib::VariantTy::INT64));
         let w = Rc::downgrade(self);

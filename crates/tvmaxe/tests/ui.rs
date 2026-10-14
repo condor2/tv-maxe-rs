@@ -41,6 +41,7 @@ fn main() {
             ("edit_local_channel", || Box::pin(edit_local_channel())),
             ("recording", || Box::pin(recording())),
             ("schedule_form", || Box::pin(schedule_form())),
+            ("sleep_timer", || Box::pin(sleep_timer())),
             // Last: closes the main window.
             ("close_while_playing", || Box::pin(close_while_playing())),
         ],
@@ -135,6 +136,7 @@ async fn dialogs_reopen() -> TestResult {
         "add-channel",
         "about",
         "recordings",
+        "sleep-timer",
     ] {
         for round in 1..=3 {
             WidgetExt::activate_action(&f.main.window, &format!("win.{action}"), None)
@@ -432,7 +434,30 @@ async fn recording() -> TestResult {
                 .any(|r| r.status == Status::Recording && !r.files.is_empty())
     })
     .await?;
-    glib::timeout_future(Duration::from_secs(2)).await;
+    // The sleep timer never ends a running recording: "Quit" only stops playback.
+    f.main
+        .start_sleep_timer(Duration::from_secs(1), tvmaxe::sleep::SleepAction::Quit);
+    wait_until("sleep timer ended", TIMEOUT, || {
+        f.main.sleep_remaining().is_none()
+    })
+    .await?;
+    check!(
+        f.main.window.is_visible() && f.main.active_recordings() == 1,
+        "the sleep timer quit during a recording"
+    );
+    check!(
+        f.main.status_text().contains("stays open"),
+        "status: {:?}",
+        f.main.status_text()
+    );
+    // Back to the channel, so the ● button refers to it again.
+    WidgetExt::activate_action(
+        &f.main.window,
+        "win.play-source",
+        Some(&(id, 0u32).to_variant()),
+    )
+    .map_err(|e| e.to_string())?;
+    glib::timeout_future(Duration::from_secs(1)).await;
     WidgetExt::activate_action(&f.main.window, "win.record", None).map_err(|e| e.to_string())?;
     check!(
         f.main.active_recordings() == 0,
@@ -576,5 +601,58 @@ async fn schedule_form() -> TestResult {
         "scheduled: {recs:?}"
     );
     let _ = f.main.db.borrow().delete_recording(recs[0].id);
+    Ok(())
+}
+
+/// The sleep timer stops playback at the end (volume put back), and can be
+/// cancelled.
+async fn sleep_timer() -> TestResult {
+    use tvmaxe::sleep::SleepAction;
+    let f = fixture()?;
+    check!(
+        f.main.play_channel_at(Kind::Tv, 0),
+        "cannot play the channel"
+    );
+    wait_until("playing", TIMEOUT, || {
+        f.main.status_text() == "Playing: Canal test"
+    })
+    .await?;
+
+    f.main
+        .start_sleep_timer(Duration::from_secs(2), SleepAction::StopPlayback);
+    check!(
+        f.main
+            .sleep_remaining()
+            .is_some_and(|d| d <= Duration::from_secs(2)),
+        "timer not running: {:?}",
+        f.main.sleep_remaining()
+    );
+    wait_until("playback stopped by the timer", TIMEOUT, || {
+        !f.main.player().is_active()
+    })
+    .await?;
+    check!(
+        f.main.status_text() == "Sleep timer: playback stopped",
+        "status: {:?}",
+        f.main.status_text()
+    );
+    check!(f.main.sleep_remaining().is_none(), "timer still running");
+
+    f.main
+        .start_sleep_timer(Duration::from_secs(600), SleepAction::Quit);
+    check!(
+        f.main.sleep_action() == Some(SleepAction::Quit),
+        "action not kept"
+    );
+    f.main.cancel_sleep_timer();
+    check!(
+        f.main.sleep_remaining().is_none(),
+        "cancel did not stop the timer"
+    );
+    check!(
+        f.main.status_text() == "Sleep timer cancelled",
+        "status: {:?}",
+        f.main.status_text()
+    );
     Ok(())
 }

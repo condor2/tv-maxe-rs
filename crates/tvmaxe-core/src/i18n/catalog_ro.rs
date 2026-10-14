@@ -3,6 +3,8 @@
 
 pub(super) const RO: &[(&str, &str)] = &[
     ("%1  ·  now", "%1  ·  acum"),
+    ("%1 in %2", "%1 în %2"),
+    ("%1 min", "%1 min"),
     ("%1 TV · %2 radio", "%1 TV · %2 radio"),
     ("%1 · source %2/%3", "%1 · sursa %2/%3"),
     ("%1 · updated %2", "%1 · actualizată %2"),
@@ -17,6 +19,7 @@ pub(super) const RO: &[(&str, &str)] = &[
         "After this time the channel's next URL is tried.",
         "După acest timp se trece la următorul URL al canalului.",
     ),
+    ("After:", "După:"),
     ("All files", "Toate fișierele"),
     ("All groups", "Toate grupurile"),
     ("All lists", "Toate listele"),
@@ -25,6 +28,7 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("Buffering… %1%", "Se încarcă în buffer… %1%"),
     ("Cancel", "Anulează"),
     ("Cancel recording", "Anulează înregistrarea"),
+    ("Cancel timer", "Anulează timerul"),
     ("Cannot add the channel: %1", "Nu pot adăuga canalul: %1"),
     ("Cannot add the list: %1", "Nu pot adăuga lista: %1"),
     ("Cannot delete the channel: %1", "Nu pot șterge canalul: %1"),
@@ -113,6 +117,7 @@ pub(super) const RO: &[(&str, &str)] = &[
         "Empty = default. Some IPTV lists require a specific value.",
         "Gol = implicit. Unele liste IPTV cer o valoare anume.",
     ),
+    ("End of “%1” (%2)", "Sfârșitul „%1” (%2)"),
     ("End:", "Sfârșit:"),
     ("ends the next day", "se termină a doua zi"),
     (
@@ -146,6 +151,7 @@ pub(super) const RO: &[(&str, &str)] = &[
         "Larger = fewer interruptions, slightly slower start.",
         "Mai mare = mai puține întreruperi, pornire puțin mai lentă.",
     ),
+    ("minutes", "minute"),
     (
         "Missed: TV-Maxe was not running",
         "Ratată: TV-Maxe nu era pornit",
@@ -205,6 +211,7 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("Preferences…", "Preferințe…"),
     ("Previous day", "Ziua anterioară"),
     ("Quit", "Ieșire"),
+    ("Quit TV-Maxe", "Închide TV-Maxe"),
     (
         "Quitting stops recording. What was recorded so far is kept.",
         "Ieșirea oprește înregistrarea. Ce s-a înregistrat până acum se păstrează.",
@@ -241,6 +248,7 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("Remove subscription", "Elimină abonamentul"),
     ("Remove the subscription “%1”?", "Elimini abonamentul „%1”?"),
     ("Repeat:", "Repetare:"),
+    ("Restart", "Repornește"),
     ("Save", "Salvează"),
     ("Save local list", "Salvează lista locală"),
     ("Save local list…", "Salvează lista locală…"),
@@ -260,12 +268,35 @@ pub(super) const RO: &[(&str, &str)] = &[
         "Show the channels from this list",
         "Afișează canalele din această listă",
     ),
+    ("Shut down the computer", "Oprește calculatorul"),
+    ("Sleep timer", "Oprire automată"),
+    ("Sleep timer cancelled", "Oprirea automată a fost anulată"),
+    ("Sleep timer: %1 at %2", "Oprire automată: %1 la %2"),
+    (
+        "Sleep timer: %1 failed (%2)",
+        "Oprire automată: %1 a eșuat (%2)",
+    ),
+    (
+        "Sleep timer: one minute left",
+        "Oprire automată: a mai rămas un minut",
+    ),
+    (
+        "Sleep timer: playback stopped",
+        "Oprire automată: redarea a fost oprită",
+    ),
+    (
+        "Sleep timer: playback stopped; TV-Maxe stays open because a recording is running",
+        "Oprire automată: redarea a fost oprită; TV-Maxe rămâne deschis pentru că rulează o înregistrare",
+    ),
+    ("Sleep timer…", "Oprire automată…"),
     ("Source", "Sursă"),
+    ("Start", "Pornește"),
     ("Start:", "Început:"),
     ("starts right away", "începe imediat"),
     ("Startup", "Pornire"),
     ("Stop", "Oprește"),
     ("Stop and quit", "Oprește și ieși"),
+    ("Stop playback", "Oprește redarea"),
     ("Stop recording", "Oprește înregistrarea"),
     (
         "Stop recording (Ctrl+Shift+R)",
@@ -278,6 +309,7 @@ pub(super) const RO: &[(&str, &str)] = &[
     ),
     ("Subscriptions", "Abonamente"),
     ("Subscriptions…", "Abonamente…"),
+    ("Suspend the computer", "Suspendă calculatorul"),
     (
         "Switching back from “Fast” takes effect after a restart.",
         "Revenirea de la „Rapidă” se aplică după repornire.",
@@ -331,12 +363,25 @@ pub(super) const RO: &[(&str, &str)] = &[
         "EPG-ul necomprimat depășește limita de %1 octeți",
     ),
     (
+        "The volume goes down during the last 30 seconds.",
+        "Volumul scade în ultimele 30 de secunde.",
+    ),
+    (
+        "The volume goes down during the last 30 seconds. If a recording is running, TV-Maxe only stops playback, so the recording is not lost.",
+        "Volumul scade în ultimele 30 de secunde. Dacă rulează o înregistrare, TV-Maxe doar oprește redarea, ca înregistrarea să nu se piardă.",
+    ),
+    ("Then:", "Apoi:"),
+    (
         "There is no schedule for this day.",
         "Nu există program pentru această zi.",
     ),
     (
         "There is no TV guide source.\n\nM3U lists usually declare one themselves (url-tvg). You can add one in TV-Maxe → Preferences → TV guide.",
         "Nu există nicio sursă de ghid TV.\n\nListele M3U o declară de obicei singure (url-tvg). Poți adăuga una în TV-Maxe → Preferințe → Ghid TV.",
+    ),
+    (
+        "This system does not allow it (or logind is not running).",
+        "Sistemul nu permite asta (sau logind nu rulează).",
     ),
     (
         "This time has already passed.",

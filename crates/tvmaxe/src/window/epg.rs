@@ -165,6 +165,14 @@ impl MainWindow {
         })
     }
 
+    /// The programme on air on the current channel: (title, end).
+    pub fn current_programme(&self) -> Option<(String, i64)> {
+        let key = self.current.borrow().as_ref()?.epg_key.clone()?;
+        let now = net::unix_now();
+        let (cur, _) = self.db.borrow().epg_now_next(&key, now).ok()?;
+        cur.map(|p| (p.title, p.stop))
+    }
+
     pub fn epg_range(&self, key: &str, from: i64, to: i64) -> Vec<Programme> {
         self.db
             .borrow()
