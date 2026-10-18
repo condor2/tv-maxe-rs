@@ -142,10 +142,13 @@ impl MainWindow {
             Some(&gtk::Label::new(Some(tr("Radio stations")))),
         );
         notebook.set_vexpand(true);
+        // The channel list draws its own frame; a second one around the page looked like two boxes.
+        notebook.set_show_border(false);
 
         let list_status = gtk::Label::builder()
             .xalign(0.0)
             .margin_start(8)
+            .margin_top(4)
             .margin_bottom(4)
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .build();
