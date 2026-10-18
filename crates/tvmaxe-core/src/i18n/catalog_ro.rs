@@ -14,6 +14,10 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("_View", "_Vizualizare"),
     ("About TV-Maxe", "Despre TV-Maxe"),
     ("Add", "Adaugă"),
+    (
+        "Add an account with a server, user name and password",
+        "Adaugă un cont cu server, nume de utilizator și parolă",
+    ),
     ("Add channel", "Adaugă canal"),
     ("Add channel…", "Adaugă canal…"),
     (
@@ -140,6 +144,10 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("ends the next day", "se termină a doua zi"),
     ("English", "engleză"),
     (
+        "Enter the address, user name and password your provider gave you. Only live channels are added. Only use accounts you have the right to use.",
+        "Introdu adresa, numele de utilizator și parola primite de la furnizor. Se adaugă doar canalele live. Folosește doar conturi pe care ai dreptul să le folosești.",
+    ),
+    (
         "Error reading the database: %1",
         "Eroare la citirea bazei: %1",
     ),
@@ -232,6 +240,7 @@ pub(super) const RO: &[(&str, &str)] = &[
     ),
     ("Open folder", "Deschide folderul"),
     ("Original TV-Maxe", "TV-Maxe original"),
+    ("Password:", "Parolă:"),
     ("Pause", "Pauză"),
     ("Paused: %1", "Pauză: %1"),
     ("Play", "Pornește"),
@@ -314,6 +323,7 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("Search channel", "Caută canal"),
     ("seconds", "secunde"),
     ("Serbian", "sârbă"),
+    ("Server:", "Server:"),
     ("Show favourites", "Arată favoritele"),
     ("Show in folder", "Arată în folder"),
     (
@@ -368,6 +378,10 @@ pub(super) const RO: &[(&str, &str)] = &[
         "Switching back from “Fast” takes effect after a restart.",
         "Revenirea de la „Rapidă” se aplică după repornire.",
     ),
+    (
+        "the account is not active (%1)",
+        "contul nu este activ (%1)",
+    ),
     ("The broadcast has ended", "Transmisia s-a încheiat"),
     (
         "The channel cannot be loaded (offline or wrong URL)",
@@ -408,6 +422,14 @@ pub(super) const RO: &[(&str, &str)] = &[
     ),
     ("The list was saved to %1", "Lista a fost salvată în %1"),
     ("The lists have been updated", "Listele au fost actualizate"),
+    (
+        "the server did not answer like an Xtream Codes panel",
+        "serverul nu a răspuns ca un panou Xtream Codes",
+    ),
+    (
+        "the server is not an Xtream Codes panel",
+        "serverul nu este un panou Xtream Codes",
+    ),
     (
         "the source exceeds the %1-byte limit",
         "sursa depășește limita de %1 octeți",
@@ -474,6 +496,7 @@ pub(super) const RO: &[(&str, &str)] = &[
     ),
     ("Updating “%1” (%2/%3)…", "Se actualizează „%1” (%2/%3)…"),
     ("URLs:", "URL-uri:"),
+    ("User name:", "Nume de utilizator:"),
     (
         "Uses the graphics card. Turn it off if the picture shows artefacts.",
         "Folosește placa video. Dezactivează dacă imaginea are artefacte.",
@@ -484,9 +507,16 @@ pub(super) const RO: &[(&str, &str)] = &[
         "Bun venit! Adaugă o listă de canale din TV-Maxe → Abonamente…",
     ),
     (
+        "wrong user name or password",
+        "nume de utilizator sau parolă greșite",
+    ),
+    (
         "XMLTV addresses (.xml or .xml.gz), one per line. M3U lists usually declare their own guide (url-tvg), so this is only needed for extra sources.",
         "Adrese XMLTV (.xml sau .xml.gz), câte una pe linie. Listele M3U își declară de obicei singure ghidul (url-tvg), deci aici e nevoie doar pentru surse în plus.",
     ),
+    ("Xtream Codes account", "Cont Xtream Codes"),
+    ("Xtream Codes account…", "Cont Xtream Codes…"),
+    ("Xtream Codes…", "Xtream Codes…"),
     ("Yesterday", "Ieri"),
     (
         "“%1” was added to the favourites",

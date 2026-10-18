@@ -2,7 +2,7 @@
 //! separate from the UI. Each one opens its own database connection.
 
 use crate::i18n::{fill, tr};
-use crate::{Database, Error, Result, formats};
+use crate::{ChannelList, Database, Error, Result, formats};
 use std::io::Read;
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock, mpsc};
@@ -69,12 +69,36 @@ pub fn update_subscription(db_path: &Path, id: i64) -> Result<usize> {
     let Some(url) = db.subscription_url(id)? else {
         return Ok(0);
     };
-    match fetch(&url, MAX_LIST).and_then(|data| formats::parse(&data)) {
+    let list = match formats::xtream::Account::from_source(&url) {
+        Some(account) => fetch_xtream(&account),
+        None => fetch(&url, MAX_LIST).and_then(|data| formats::parse(&data)),
+    };
+    match list {
         Ok(list) => db.replace_channels(id, &list),
         Err(e) => {
             db.set_subscription_error(id, &e.to_string())?;
             Err(e)
         }
+    }
+}
+
+/// Asks an Xtream Codes panel for its account and live channels.
+pub fn fetch_xtream(account: &formats::xtream::Account) -> Result<ChannelList> {
+    let ask = |action: Option<&str>| -> Result<serde_json::Value> {
+        let data = fetch(&account.api_url(action), MAX_LIST)?;
+        serde_json::from_slice(&data).map_err(|_| {
+            Error::Account(tr("the server did not answer like an Xtream Codes panel").into())
+        })
+    };
+    let formats = formats::xtream::check_account(&ask(None)?)?;
+    // Without categories the channels are still usable, just ungrouped.
+    let categories = ask(Some("get_live_categories")).unwrap_or(serde_json::Value::Null);
+    let streams = ask(Some("get_live_streams"))?;
+    let list = formats::xtream::build_list(account, &formats, &categories, &streams);
+    if list.channels.is_empty() {
+        Err(Error::Empty)
+    } else {
+        Ok(list)
     }
 }
 

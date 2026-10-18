@@ -5,7 +5,7 @@
 #   scripts/integration-tests.sh wayland      # weston --backend=headless
 #   scripts/integration-tests.sh x11 headers  # only tests whose name contains "headers"
 #
-# Requires: xvfb (xvfb-run) for x11, weston for wayland.
+# Requires: xvfb (xvfb-run) for x11, weston for wayland, dbus-daemon (MPRIS tests).
 set -euo pipefail
 
 mode=${1:-x11}
@@ -16,7 +16,7 @@ export TVMAXE_REQUIRE_DISPLAY=1
 export LIBGL_ALWAYS_SOFTWARE=1
 export GALLIUM_DRIVER=llvmpipe
 
-cmd=(cargo test -p tvmaxe --test player --test ui -- "$@")
+cmd=(cargo test -p tvmaxe --test player --test ui --test mpris -- "$@")
 
 case "$mode" in
 x11)
@@ -36,7 +36,7 @@ wayland)
         sleep 0.1
     done
     if [[ ! -S $runtime/$socket ]]; then
-        echo "weston nu a pornit:" >&2
+        echo "weston did not start:" >&2
         cat "$runtime/weston.log" >&2
         exit 1
     fi

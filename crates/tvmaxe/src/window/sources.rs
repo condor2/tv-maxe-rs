@@ -5,6 +5,7 @@ use crate::channel_list::ChannelRow;
 use gtk::{gdk, gio, glib};
 use std::collections::HashMap;
 use std::rc::Rc;
+use tvmaxe_core::formats::xtream::Account;
 use tvmaxe_core::i18n::{fill, tr, trn};
 use tvmaxe_core::net;
 
@@ -160,13 +161,23 @@ impl MainWindow {
         if source.is_empty() {
             return;
         }
-        match self.db.borrow().add_subscription(source, source) {
-            Ok(id) => {
-                self.refresh_subscriptions(Some(vec![id]));
-            }
+        // An Xtream Codes address is named after its server, not after the
+        // address (which holds the password).
+        let (name, url) = match Account::from_source(source) {
+            Some(a) => (a.host(), a.source_url()),
+            None => (source.to_string(), source.to_string()),
+        };
+        let added = self.db.borrow().add_subscription(&name, &url);
+        match added {
+            Ok(id) => self.refresh_subscriptions(Some(vec![id])),
             Err(e) => self.set_status(&fill(tr("Cannot add the list: %1"), &[&e])),
         }
         self.reload();
+    }
+
+    /// Adds an Xtream Codes account as a subscription and loads its channels.
+    pub fn add_xtream(self: &Rc<Self>, account: &Account) {
+        self.add_subscription(&account.source_url());
     }
 
     pub(super) fn delete_channel(&self, id: i64) {

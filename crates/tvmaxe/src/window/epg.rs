@@ -87,6 +87,8 @@ impl MainWindow {
 
     /// "Now playing" in the lists + the panel under the video.
     pub fn refresh_epg_view(&self) {
+        // The programme on air may have changed.
+        self.mpris_sync();
         let current = self
             .db
             .borrow()

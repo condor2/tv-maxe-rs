@@ -20,6 +20,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use tvmaxe::MainWindow;
 use tvmaxe_core::Kind;
+use tvmaxe_core::formats::xtream::Account;
 use tvmaxe_core::recording::{Recording, Repeat, Status};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
@@ -45,6 +46,7 @@ fn main() {
             ("favourites_and_zapping", || {
                 Box::pin(favourites_and_zapping())
             }),
+            ("xtream_account", || Box::pin(xtream_account())),
             // Last: closes the main window.
             ("close_while_playing", || Box::pin(close_while_playing())),
         ],
@@ -780,5 +782,149 @@ async fn favourites_and_zapping() -> TestResult {
         let _ = f.main.db.borrow().delete_local_channel(id);
     }
     f.main.reload();
+    Ok(())
+}
+
+/// A fake Xtream Codes panel with one user, "ana" / "s3cret".
+fn xtream_panel() -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]).to_string();
+            let target = request.split(' ').nth(1).unwrap_or("");
+            let body = if !target.contains("username=ana&password=s3cret") {
+                r#"{"user_info":{"auth":0}}"#
+            } else if target.contains("get_live_categories") {
+                r#"[{"category_id":"1","category_name":"Romania"}]"#
+            } else if target.contains("get_live_streams") {
+                r#"[{"name":"XT Pro TV","stream_type":"live","stream_id":1,"category_id":"1"},
+                    {"name":"XT Antena","stream_type":"live","stream_id":2,"category_id":"1"}]"#
+            } else {
+                r#"{"user_info":{"auth":1,"status":"Active"}}"#
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    base
+}
+
+/// "Xtream Codes account…": the form only enables *Add* when it is filled in,
+/// the account becomes a subscription named after the server (no password in
+/// the name), its channels appear, and a wrong password is reported.
+async fn xtream_account() -> TestResult {
+    let f = fixture()?;
+    let main: gtk::Window = f.main.window.clone().upcast();
+    let server = xtream_panel();
+    let tv_before = f.main.channel_count(Kind::Tv);
+
+    WidgetExt::activate_action(&f.main.window, "win.add-xtream", None)
+        .map_err(|e| e.to_string())?;
+    wait_until("Xtream form", TIMEOUT, || {
+        secondary_windows(&main).iter().any(|w| w.is_mapped())
+    })
+    .await?;
+    let dialog = secondary_windows(&main).remove(0);
+    check!(
+        dialog.title().as_deref() == Some("Xtream Codes account"),
+        "title: {:?}",
+        dialog.title()
+    );
+    let root: gtk::Widget = dialog.clone().upcast();
+    let entries = descendants::<gtk::Entry>(&root);
+    let (server_entry, user_entry) = match entries.as_slice() {
+        [server, user, ..] => (server.clone(), user.clone()),
+        _ => return Err("the Server / User name fields are missing".into()),
+    };
+    let password = descendants::<gtk::PasswordEntry>(&root)
+        .into_iter()
+        .next()
+        .ok_or("the Password field is missing")?;
+    let add = descendants::<gtk::Button>(&root)
+        .into_iter()
+        .find(|b| b.label().as_deref() == Some("Add"))
+        .ok_or("the Add button is missing")?;
+
+    check!(!add.is_sensitive(), "Add is enabled with an empty form");
+    server_entry.set_text(&server);
+    user_entry.set_text("ana");
+    check!(!add.is_sensitive(), "Add is enabled without a password");
+    password.set_text("s3cret");
+    check!(add.is_sensitive(), "Add is disabled with a full form");
+    add.emit_clicked();
+    wait_until("the form closes", TIMEOUT, || {
+        secondary_windows(&main).is_empty()
+    })
+    .await?;
+
+    wait_until("the Xtream channels", TIMEOUT, || {
+        f.main.channel_count(Kind::Tv) == tv_before + 2
+    })
+    .await?;
+    let host = server.trim_start_matches("http://").to_string();
+    let subs = f
+        .main
+        .db
+        .borrow()
+        .subscriptions()
+        .map_err(|e| e.to_string())?;
+    let sub = subs
+        .iter()
+        .find(|s| s.name == host)
+        .ok_or_else(|| format!("no subscription named {host}"))?;
+    check!(sub.last_error.is_none(), "error: {:?}", sub.last_error);
+    check!(
+        !sub.name.contains("s3cret") && !sub.display_url().contains("s3cret"),
+        "the password is visible: {} / {}",
+        sub.name,
+        sub.display_url()
+    );
+    let id = sub.id;
+
+    // A wrong password: the error is kept on the subscription.
+    let wrong = Account::new(&server, "ana", "hunter2x").ok_or("account")?;
+    f.main.add_xtream(&wrong);
+    wait_until("the wrong password is reported", TIMEOUT, || {
+        f.main
+            .db
+            .borrow()
+            .subscriptions()
+            .map(|subs| {
+                subs.iter().any(|s| {
+                    s.id != id
+                        && s.name == host
+                        && s.last_error.as_deref() == Some("wrong user name or password")
+                })
+            })
+            .unwrap_or(false)
+    })
+    .await?;
+
+    // Clean-up: the next tests count the channels.
+    for s in f
+        .main
+        .db
+        .borrow()
+        .subscriptions()
+        .map_err(|e| e.to_string())?
+    {
+        if s.name == host {
+            let _ = f.main.db.borrow().remove_subscription(s.id);
+        }
+    }
+    f.main.reload();
+    check!(
+        f.main.channel_count(Kind::Tv) == tv_before,
+        "the Xtream channels stayed"
+    );
     Ok(())
 }

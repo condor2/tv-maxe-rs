@@ -46,6 +46,7 @@ fn main() {
                 Box::pin(sends_channel_http_headers())
             }),
             ("pause_and_stop", || Box::pin(pause_and_stop())),
+            ("stop_and_play_again", || Box::pin(stop_and_play_again())),
             ("switch_away_from_dead_url", || {
                 Box::pin(switch_away_from_dead_url())
             }),
@@ -232,6 +233,33 @@ async fn falls_back_to_next_url() -> TestResult {
         "URL-ul mort a ajuns la utilizator ca eroare: {:?}",
         rig.events.borrow()
     );
+    Ok(())
+}
+
+/// Stop, then play again and again, with the video area on screen: the
+/// interface must not freeze while mpv restarts its video output.
+async fn stop_and_play_again() -> TestResult {
+    let rig = Rig::new().await?;
+    for round in 0..6 {
+        let started = std::time::Instant::now();
+        rig.events.borrow_mut().clear();
+        rig.player
+            .play(urls(&[TEST_VIDEO]), StreamOptions::default());
+        rig.wait_playing().await?;
+        sleep(150).await;
+        // Pause and resume first, as the media keys do.
+        rig.player.toggle_pause();
+        sleep(150).await;
+        rig.player.toggle_pause();
+        sleep(150).await;
+        rig.player.stop();
+        sleep(30).await;
+        let took = started.elapsed();
+        check!(
+            took < Duration::from_secs(3),
+            "round {round}: the interface was stuck for {took:?}"
+        );
+    }
     Ok(())
 }
 

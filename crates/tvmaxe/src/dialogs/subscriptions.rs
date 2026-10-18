@@ -49,11 +49,16 @@ impl SubscriptionsDialog {
             .hexpand(true)
             .build();
         let file_btn = gtk::Button::with_label(tr("File…"));
+        let xtream_btn = gtk::Button::with_label(tr("Xtream Codes…"));
+        xtream_btn.set_tooltip_text(Some(tr(
+            "Add an account with a server, user name and password",
+        )));
         let add_btn = gtk::Button::with_label(tr("Add"));
         add_btn.add_css_class("suggested-action");
         let add_row = gtk::Box::builder().spacing(6).build();
         add_row.append(&entry);
         add_row.append(&file_btn);
+        add_row.append(&xtream_btn);
         add_row.append(&add_btn);
 
         let refresh_btn = gtk::Button::with_label(tr("Update all"));
@@ -129,6 +134,14 @@ impl SubscriptionsDialog {
             });
         });
 
+        let w = this.window.downgrade();
+        let main_w = Rc::downgrade(main);
+        xtream_btn.connect_clicked(move |_| {
+            if let (Some(win), Some(main)) = (w.upgrade(), main_w.upgrade()) {
+                super::xtream_account(&main, &win);
+            }
+        });
+
         let main_w = Rc::downgrade(main);
         refresh_btn.connect_clicked(move |_| {
             if let Some(main) = main_w.upgrade() {
@@ -192,11 +205,12 @@ impl SubscriptionsDialog {
             .ellipsize(gtk::pango::EllipsizeMode::End)
             .build();
         name.add_css_class("channel-title");
+        let url_text = sub.display_url();
         let url = gtk::Label::builder()
             .label(if sub.is_local() {
                 tr("Channels added by hand (TV-Maxe → Add channel…)")
             } else {
-                &sub.url
+                &url_text
             })
             .xalign(0.0)
             .ellipsize(gtk::pango::EllipsizeMode::Middle)

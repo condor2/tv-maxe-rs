@@ -16,6 +16,7 @@
 //! ```
 
 mod epg;
+mod mpris;
 mod recordings;
 mod sleep;
 mod sources;
@@ -111,6 +112,8 @@ pub struct MainWindow {
     /// The user confirmed quitting while recordings were running.
     quit_confirmed: Cell<bool>,
     sleep: RefCell<Option<sleep::SleepTimer>>,
+    /// The MPRIS service on the session bus, once started.
+    mpris: RefCell<Option<crate::mpris::Mpris>>,
     sleep_indicator: gtk::Label,
     fav_btn: gtk::Button,
     audio_btn: gtk::MenuButton,
@@ -451,6 +454,7 @@ impl MainWindow {
             rec_indicator,
             quit_confirmed: Cell::new(false),
             sleep: RefCell::default(),
+            mpris: RefCell::default(),
             sleep_indicator,
             fav_btn,
             audio_btn,
@@ -531,9 +535,13 @@ impl MainWindow {
             }
         });
 
-        let player = self.player.clone();
-        self.volume
-            .connect_value_changed(move |_, v| player.set_volume(v));
+        let w = Rc::downgrade(self);
+        self.volume.connect_value_changed(move |_, v| {
+            if let Some(w) = w.upgrade() {
+                w.player.set_volume(v);
+                w.mpris_sync();
+            }
+        });
 
         let w = Rc::downgrade(self);
         self.player.connect_event(move |ev| {
@@ -643,6 +651,9 @@ impl MainWindow {
         add("subscriptions", dialogs::SubscriptionsDialog::present);
         add("refresh", |w| w.refresh_subscriptions(None));
         add("add-channel", dialogs::add_channel);
+        add("add-xtream", |w| {
+            dialogs::xtream_account(w, w.window.upcast_ref())
+        });
         add("export-local", dialogs::export_local);
         add("search", |w| w.current_list().focus_search());
         add("about", |w| dialogs::about(&w.window));
@@ -980,6 +991,7 @@ impl MainWindow {
                 }
             }
         }
+        self.mpris_sync();
     }
 
     // ---------- Audio tracks ----------

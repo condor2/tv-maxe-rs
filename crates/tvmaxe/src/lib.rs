@@ -4,6 +4,7 @@
 
 mod channel_list;
 mod dialogs;
+mod mpris;
 pub mod player;
 mod settings;
 pub mod sleep;
@@ -97,6 +98,7 @@ fn window(app: &gtk::Application) -> Option<Rc<MainWindow>> {
     let db_path = glib::user_data_dir().join("tvmaxe").join("tvmaxe.db");
     match MainWindow::new(app, db_path) {
         Ok(w) => {
+            w.start_mpris();
             WINDOW.with_borrow_mut(|slot| *slot = Some(w.clone()));
             Some(w)
         }
@@ -128,6 +130,7 @@ fn menu_bar() -> gio::Menu {
     let tvmaxe = gio::Menu::new();
     let s1 = gio::Menu::new();
     s1.append(Some(tr("Subscriptions…")), Some("win.subscriptions"));
+    s1.append(Some(tr("Xtream Codes account…")), Some("win.add-xtream"));
     s1.append(Some(tr("Update lists")), Some("win.refresh"));
     let s2 = gio::Menu::new();
     s2.append(Some(tr("Add channel…")), Some("win.add-channel"));

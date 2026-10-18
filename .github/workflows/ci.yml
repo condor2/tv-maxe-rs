@@ -70,7 +70,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgtk-4-dev libmpv-dev libgl1-mesa-dri xvfb xauth weston locales ffmpeg
+            libgtk-4-dev libmpv-dev libgl1-mesa-dri xvfb xauth weston locales ffmpeg dbus-daemon
           # For the starts_under_non_c_locale test (the mpv LC_NUMERIC bug).
           sudo locale-gen ro_RO.UTF-8
 

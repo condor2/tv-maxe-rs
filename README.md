@@ -29,9 +29,11 @@ lists, but it is a complete rewrite and contains no code from the original proje
 - [Installation](#installation)
 - [Usage](#usage)
 - [Favourites and zapping](#favourites-and-zapping)
+- [Media keys and desktop controls](#media-keys-and-desktop-controls)
 - [Audio tracks](#audio-tracks)
 - [Recording](#recording)
 - [Sleep timer](#sleep-timer)
+- [Xtream Codes accounts](#xtream-codes-accounts)
 - [Supported list formats](#supported-list-formats)
 - [Language](#language)
 - [Data and settings](#data-and-settings)
@@ -46,6 +48,8 @@ lists, but it is a complete rewrite and contains no code from the original proje
 - **TV and radio tabs** with channel logos and a *Channel list* picker for each subscription
 - **Subscriptions** from the internet or from disk (TV-Maxe `.db`, M3U), which can be enabled,
   disabled and updated
+- **Xtream Codes accounts**: sign in to an IPTV panel with a server, user name and password; the live
+  channels, their groups and the panel's TV guide are loaded automatically
 - **Several sources per channel**: when one URL fails, the next is tried automatically; right-click a
   channel to pick a source yourself, and the info bar shows which one is playing (*source 2/3*)
 - **My channels**: your own channels, added by hand, editable from the right-click menu and exportable
@@ -61,6 +65,8 @@ lists, but it is a complete rewrite and contains no code from the original proje
 - **Favourites**: star the channels you watch most and show only them with one click
 - **Keyboard zapping**: Page Up / Page Down, channel numbers typed on the keyboard, Backspace for the
   last channel watched, with the channel shown over the video
+- **Media keys and desktop controls** (MPRIS): play/pause, stop, next/previous channel and volume
+  from the keyboard, the sound applet or `playerctl`, with the channel and programme shown
 - **Audio track selection** for channels with several languages, with preferred languages that
   are picked automatically
 - **Recording and scheduler**: record the channel you are watching with one click, or schedule
@@ -192,6 +198,31 @@ favourites.
 The channel number and name appear over the video for a few seconds. The keys are ignored while
 you type in the search field.
 
+## Media keys and desktop controls
+
+TV-Maxe appears on the session bus as an [MPRIS](https://specifications.freedesktop.org/mpris-spec/latest/)
+player (`org.mpris.MediaPlayer2.tvmaxe`), so the desktop can control it:
+
+| From the desktop | In TV-Maxe |
+|---|---|
+| Play / Pause / Play-Pause key | Resume, pause or toggle playback |
+| Stop key | Stop the channel |
+| Next / Previous key | Next / previous channel in the list as shown (like Page Down / Page Up) |
+| Volume slider of the sound applet | The volume of TV-Maxe |
+| Player name in the panel or lock screen | Raises the window; *Quit* closes it |
+
+The programme on air is shown as the title and the channel as the artist (without a guide,
+the channel name is the title). It works with GNOME, KDE Plasma, Xfce and anything that
+speaks MPRIS:
+
+```sh
+playerctl -p tvmaxe play-pause
+playerctl -p tvmaxe next
+playerctl -p tvmaxe metadata
+```
+
+There is nothing to set up; without a session bus the feature stays idle.
+
 ## Audio tracks
 
 When a channel has more than one audio track, an **audio track** button (♪) appears under the video,
@@ -240,6 +271,29 @@ How it works:
 The countdown (**☾ 29:41**) stays in the status bar; click it to change or cancel the timer. The
 volume fades out during the last 30 seconds. A running recording is never cut off: if one is in
 progress when the time is up, TV-Maxe only stops playback and stays open.
+
+## Xtream Codes accounts
+
+Many IPTV providers give you a server, a user name and a password instead of a list. Add them from
+**TV-Maxe → Xtream Codes account…**, or from the **Xtream Codes…** button in *Subscriptions*:
+
+1. Type the server (`http://example.com:8080`; a pasted `…/get.php?…` or `…/player_api.php` address
+   is cleaned up for you), the user name and the password.
+2. TV-Maxe asks the panel for the account, the live categories and the live channels, and reports a
+   wrong password or an expired account in plain words.
+
+Details:
+
+- A *Subscriptions* address like `http://server/player_api.php?username=…&password=…` works too.
+  A `get.php` address stays a plain M3U list.
+- Only **live channels** are loaded (no movies or series). Channels whose category contains
+  *radio* go to the Radio tab.
+- Each channel has two sources: MPEG-TS first, HLS (`.m3u8`) as the fallback, when the panel offers
+  both.
+- The panel's TV guide (`xmltv.php`) is used automatically.
+- The password is hidden in the interface. The subscription is named after the server.
+- Most panels allow only a few simultaneous connections per account: while a recording runs, watching
+  another channel counts as a second connection.
 
 ## Supported list formats
 
@@ -324,8 +378,10 @@ tests are skipped (in CI they are mandatory).
 
 | Test | What it checks |
 |---|---|
-| [`player.rs`](crates/tvmaxe/tests/player.rs) | mpv under a non-C locale; playback **and rendering** in GtkGLArea (a capture of the video area must show the colour bars); fallback URLs; failure when every URL fails; switching away from a dead URL (its late error must not fail the new channel); Referer / User-Agent headers; pause and stop; radio; choosing an audio track by preferred language and by hand |
-| [`ui.rs`](crates/tvmaxe/tests/ui.rs) | Main window and menu; a subscription from a local M3U; playback with a fallback URL; choosing a source; editing a channel in *My channels*; the ● button, a scheduled recording, a missed daily one; the schedule form; the sleep timer (and that it never ends a recording); favourites, zapping by key, by number and back; every dialog opened and closed three times; F9; closing the window during playback |
+| [`mpris.rs`](crates/tvmaxe/tests/mpris.rs) | TV-Maxe on a private `dbus-daemon`, driven by a second D-Bus connection: name and properties, Play / Pause / PlayPause / Stop, Next / Previous, Volume (set and clamped), `PropertiesChanged` for changes made in the window |
+| [`player.rs`](crates/tvmaxe/tests/player.rs) | mpv under a non-C locale; playback **and rendering** in GtkGLArea (a capture of the video area must show the colour bars); fallback URLs; failure when every URL fails; switching away from a dead URL (its late error must not fail the new channel); Referer / User-Agent headers; pause and stop; stop and play again; radio; choosing an audio track by preferred language and by hand |
+| [`ui.rs`](crates/tvmaxe/tests/ui.rs) | Main window and menu; a subscription from a local M3U; an Xtream Codes account against a fake panel (the password never shown); playback with a fallback URL; choosing a source; editing a channel in *My channels*; the ● button, a scheduled recording, a missed daily one; the schedule form; the sleep timer (and that it never ends a recording); favourites, zapping by key, by number and back; every dialog opened and closed three times; F9; closing the window during playback |
+| [`xtream.rs`](crates/tvmaxe-core/tests/xtream.rs) | The Xtream Codes client against a fake panel on a local socket: channels and groups, radio, wrong password, expired account, a server that is not a panel, a panel that is down (no display needed) |
 | [`recorder.rs`](crates/tvmaxe/tests/recorder.rs) | The recording engine: a usable MPEG-TS file, fallback URLs, failure when every URL fails, reconnecting into a new part (no display needed) |
 | [`translations.rs`](crates/tvmaxe/tests/translations.rs) | Every `tr("…")` has a Romanian translation, and the catalog has no unused entries |
 
@@ -342,6 +398,7 @@ Wayland. The video capture and the mpv log are kept as artifacts.
 ```text
 crates/tvmaxe-core/          no UI, fully unit-tested
   src/formats/               list detection and parsers (TV-Maxe .db, TV-Maxe text, M3U), .db export
+  src/formats/xtream.rs      Xtream Codes: account, API addresses, channels from the JSON answers
   src/epg.rs                 XMLTV parser (gzip, filtering, name matching)
   src/db.rs                  SQLite storage: subscriptions, channels, logos, guide, settings
   src/net.rs                 downloads of lists, logos and guides (worker threads)
@@ -352,11 +409,12 @@ crates/tvmaxe/               GTK 4 application
   src/lib.rs                 application, menu and style
   src/window.rs, window/     main window, playback, subscriptions, logos, guide, recording scheduler, sleep timer
   src/channel_list.rs        TV / Radio tab
-  src/dialogs/               Subscriptions, Add channel, Preferences, TV guide, Recordings, Sleep timer, About
+  src/dialogs/               Subscriptions, Xtream Codes account, Add channel, Preferences, TV guide, Recordings, Sleep timer, About
   src/settings.rs            preferences stored in SQLite
   src/sleep.rs               sleep timer: actions, volume fade, countdown text
+  src/mpris.rs               MPRIS D-Bus service (media keys, sound applet, playerctl)
   src/player/mod.rs          Player facade and Backend trait
-  src/player/mpv/            libmpv backend rendering into a GtkGLArea; headless recorder
+  src/player/mpv/            libmpv backend rendering into a GtkGLArea (render.rs: render API wrapper); headless recorder
   tests/                     integration and translation tests
 data/                        .desktop file and icon
 install.sh, uninstall.sh     system-wide install / uninstall
@@ -395,6 +453,8 @@ rest of the application stays the same.
 - [x] Recording and scheduler
 - [x] Sleep timer
 - [x] Favourites, keyboard zapping, audio track selection
+- [x] MPRIS (media keys, sound applet, `playerctl`)
+- [x] Xtream Codes accounts (live channels)
 - [ ] AUR and Flatpak packages
 - [ ] More interface languages
 

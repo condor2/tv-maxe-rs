@@ -3,10 +3,12 @@
 //! * **TV-Maxe `.db`** — SQLite database with the tables `info`, `tv_channels`, `radio_channels`
 //! * **Old TV-Maxe** — text `|tvchannels||newchannel|name|-|url|-|logo…`
 //! * **M3U / M3U8** — the usual IPTV format
+//! * **Xtream Codes** — a provider's JSON API (not detected from content, see [`xtream`])
 
 mod m3u;
 mod tvmaxe_db;
 mod tvmaxe_legacy;
+pub mod xtream;
 
 pub use m3u::parse_m3u;
 pub use tvmaxe_db::{parse_tvmaxe_db_file, write_tvmaxe_db};

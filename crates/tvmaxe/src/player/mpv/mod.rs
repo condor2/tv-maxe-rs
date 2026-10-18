@@ -3,6 +3,7 @@
 
 mod gl;
 pub mod recorder;
+mod render;
 
 use super::{
     AudioTrack, Backend, BackendEvent, BackendHandler, PlaybackSettings, StreamOptions,
@@ -11,7 +12,7 @@ use super::{
 use gtk::glib;
 use gtk::prelude::*;
 use libmpv2::Mpv;
-use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
+use render::RenderContext;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -79,7 +80,7 @@ impl MpvBackend {
         area.set_has_depth_buffer(false);
         area.set_has_stencil_buffer(false);
 
-        let render: Rc<RefCell<Option<RenderContext<'static>>>> = Rc::default();
+        let render: Rc<RefCell<Option<RenderContext>>> = Rc::default();
         let fast: Rc<Cell<bool>> = Rc::default();
         let quality: Rc<Cell<VideoQuality>> = Rc::default();
         let (redraw_tx, redraw_rx) = async_channel::bounded::<()>(1);
@@ -116,21 +117,11 @@ impl MpvBackend {
                     }
                     _ => {}
                 }
-                let ctx = mpv.create_render_context(vec![
-                    RenderParam::ApiType(RenderParamApiType::OpenGl),
-                    RenderParam::InitParams(OpenGLInitParams {
-                        get_proc_address: gl::get_proc_address,
-                        ctx: (),
-                    }),
-                ]);
-                match ctx {
-                    Ok(mut ctx) => {
-                        let tx = redraw_tx.clone();
-                        ctx.set_update_callback(move || {
-                            let _ = tx.try_send(());
-                        });
-                        *render.borrow_mut() = Some(ctx);
-                    }
+                let tx = redraw_tx.clone();
+                match RenderContext::new(mpv, move || {
+                    let _ = tx.try_send(());
+                }) {
+                    Ok(ctx) => *render.borrow_mut() = Some(ctx),
                     Err(e) => eprintln!("mpv render context: {e}"),
                 }
             }
@@ -141,17 +132,8 @@ impl MpvBackend {
             render,
             move |area| {
                 area.make_current();
-                if let Some(mut ctx) = render.borrow_mut().take() {
-                    // libmpv2 frees the callback *before*
-                    // mpv_render_context_free, while mpv's "vo" thread
-                    // can still call it (use-after-free → crash when the
-                    // window closes). Replace it first with a non-capturing
-                    // closure: mpv no longer calls the old callback after the
-                    // replacement, and the new one is zero-sized, so calling
-                    // it reads no freed memory.
-                    ctx.set_update_callback(|| {});
-                    drop(ctx);
-                }
+                // Dropping the context frees it (before its callback).
+                render.borrow_mut().take();
             }
         ));
 
@@ -160,13 +142,11 @@ impl MpvBackend {
             render,
             move |area, _| {
                 if let Some(ctx) = render.borrow().as_ref() {
+                    ctx.update();
                     let s = area.scale_factor();
-                    if let Err(e) = ctx.render::<()>(
-                        gl::current_draw_fbo(),
-                        area.width() * s,
-                        area.height() * s,
-                        true,
-                    ) {
+                    if let Err(e) =
+                        ctx.render(gl::current_draw_fbo(), area.width() * s, area.height() * s)
+                    {
                         eprintln!("mpv render: {e}");
                     }
                 }

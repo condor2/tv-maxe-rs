@@ -131,6 +131,11 @@ impl Subscription {
         self.url == LOCAL_URL
     }
 
+    /// The address for showing: the password of an Xtream account is hidden.
+    pub fn display_url(&self) -> String {
+        crate::formats::xtream::mask_password(&self.url)
+    }
+
     /// Display name: the local list gets a translated name ("My channels"),
     /// whatever language the database was created in.
     pub fn display_name(&self) -> &str {

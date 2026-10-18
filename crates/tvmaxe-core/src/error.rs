@@ -17,6 +17,8 @@ pub enum Error {
     Empty,
     /// Corrupt list (details in the message).
     Invalid(String),
+    /// An IPTV account problem (wrong password, expired…); the message says it all.
+    Account(String),
 }
 
 impl fmt::Display for Error {
@@ -30,6 +32,7 @@ impl fmt::Display for Error {
             )),
             Error::Empty => f.write_str(tr("the list contains no channels")),
             Error::Invalid(e) => f.write_str(&fill(tr("invalid list: %1"), &[e])),
+            Error::Account(e) => f.write_str(e),
         }
     }
 }
