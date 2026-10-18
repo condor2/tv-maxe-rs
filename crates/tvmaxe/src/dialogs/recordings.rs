@@ -85,7 +85,7 @@ impl RecordingsDialog {
         let m = Rc::downgrade(main);
         schedule.connect_clicked(move |_| {
             let Some(m) = m.upgrade() else { return };
-            match m.guide_target() {
+            match m.channel_target() {
                 Some(t) => {
                     let now = unix_now();
                     let start = now + 60 - now % 60;
@@ -149,7 +149,7 @@ impl RecordingsDialog {
             let empty = gtk::Label::builder()
                 .label(tr(
                     "No recordings yet.\n\nRecord the channel you are watching with the ● button, \
-                     or schedule one from the TV guide or the channel menu (right-click).",
+                     or schedule one from the channel menu (right-click).",
                 ))
                 .justify(gtk::Justification::Center)
                 .wrap(true)

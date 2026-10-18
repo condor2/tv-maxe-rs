@@ -33,7 +33,6 @@ fn main() {
             ("local_m3u_subscription_and_playback", || {
                 Box::pin(local_m3u_and_play())
             }),
-            // After the test above: "TV guide" needs a selected channel.
             ("dialogs_reopen_after_close", || Box::pin(dialogs_reopen())),
             ("channel_list_hide_and_show", || {
                 Box::pin(toggle_channel_list())
@@ -114,18 +113,6 @@ async fn main_window_starts() -> TestResult {
         win.application().is_some_and(|a| a.menubar().is_some()),
         "the application menu is missing"
     );
-    // Without a selected channel, "TV guide" explains in the status bar instead of opening.
-    WidgetExt::activate_action(&win, "win.guide", None).map_err(|e| e.to_string())?;
-    glib::timeout_future(Duration::from_millis(200)).await;
-    check!(
-        secondary_windows(win.upcast_ref()).is_empty(),
-        "TV guide opened without a channel"
-    );
-    check!(
-        f.main.status_text().starts_with("Choose a channel"),
-        "status: {:?}",
-        f.main.status_text()
-    );
     Ok(())
 }
 
@@ -136,7 +123,6 @@ async fn dialogs_reopen() -> TestResult {
     let main: gtk::Window = f.main.window.clone().upcast();
     for action in [
         "subscriptions",
-        "guide",
         "preferences",
         "add-channel",
         "about",
@@ -398,6 +384,42 @@ fn recordings_of(f: &Fixture, title: &str) -> Vec<Recording> {
         .collect()
 }
 
+/// What the recordings look like right now, for the message of a failed wait.
+fn recording_state(f: &Fixture) -> String {
+    let rows: Vec<String> = f
+        .main
+        .db
+        .borrow()
+        .recordings()
+        .unwrap_or_default()
+        .iter()
+        .map(|r| {
+            let files: Vec<String> = r
+                .files
+                .iter()
+                .map(|p| {
+                    format!(
+                        "{p} ({} bytes)",
+                        std::fs::metadata(p).map_or(0, |m| m.len())
+                    )
+                })
+                .collect();
+            format!(
+                "#{} {:?} status={:?} error={:?} files={files:?}",
+                r.id,
+                r.display_title(),
+                r.status,
+                r.error
+            )
+        })
+        .collect();
+    format!(
+        "active recorders: {}; status bar: {:?}; recordings: {rows:?}",
+        f.main.active_recordings(),
+        f.main.status_text()
+    )
+}
+
 /// Recording end to end: the ● button (start and stop), a scheduled
 /// recording that starts and stops by itself, and a missed daily recording
 /// that is moved to the next day.
@@ -434,11 +456,16 @@ async fn recording() -> TestResult {
     WidgetExt::activate_action(&f.main.window, "win.record", None).map_err(|e| e.to_string())?;
     wait_until("one active recording", TIMEOUT, || {
         f.main.active_recordings() == 1
-            && recordings_of(&f, "Rec test")
-                .iter()
-                .any(|r| r.status == Status::Recording && !r.files.is_empty())
     })
-    .await?;
+    .await
+    .map_err(|e| format!("{e}; {}", recording_state(&f)))?;
+    wait_until("the recording has a file with data", TIMEOUT, || {
+        recordings_of(&f, "Rec test")
+            .iter()
+            .any(|r| r.status == Status::Recording && !r.files.is_empty())
+    })
+    .await
+    .map_err(|e| format!("{e}; {}", recording_state(&f)))?;
     // The sleep timer never ends a running recording: "Quit" only stops playback.
     f.main
         .start_sleep_timer(Duration::from_secs(1), tvmaxe::sleep::SleepAction::Quit);

@@ -4,19 +4,18 @@
 //! also starts without internet), the logo cache and the settings.
 //! Every thread opens its own connection (WAL).
 
-use crate::epg::{Guide, Programme, Wanted, normalize_name};
 use crate::recording::{Recording, Repeat, Status};
 use crate::{Channel, ChannelList, Error, Kind, Logo, Result, StreamOptions};
 use rusqlite::{Connection, OptionalExtension, params};
-use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// The URL reserved for the local list ("My channels").
 pub const LOCAL_URL: &str = "local:";
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
-/// Version 2: the TV guide (EPG).
+/// Version 2: the TV guide (removed again in version 6; kept so that
+/// every old database goes through the same steps).
 const SCHEMA_V2: &str = "
 CREATE TABLE epg_sources (
     url        TEXT PRIMARY KEY,
@@ -78,6 +77,16 @@ CREATE TABLE favourites (
     added_at INTEGER NOT NULL DEFAULT (unixepoch()),
     PRIMARY KEY (kind, url)
 );
+";
+
+/// Version 6: the TV guide is gone, so are its tables, columns and settings.
+const SCHEMA_V6: &str = "
+DROP TABLE IF EXISTS epg_programmes;
+DROP TABLE IF EXISTS epg_channels;
+DROP TABLE IF EXISTS epg_sources;
+ALTER TABLE subscriptions DROP COLUMN epg_url;
+ALTER TABLE channels DROP COLUMN guide_id;
+DELETE FROM settings WHERE key LIKE '%epg%';
 ";
 
 const SCHEMA: &str = "
@@ -156,8 +165,6 @@ pub struct StoredChannel {
     pub name: String,
     pub urls: Vec<String>,
     pub group: Option<String>,
-    /// `tvg-id` (M3U) or `guide` (TV-Maxe): the key for the TV guide.
-    pub guide_id: Option<String>,
     /// Logo embedded in the list or downloaded earlier.
     pub logo: Option<Vec<u8>>,
     /// Where the logo can be downloaded from, if it is not in the database yet.
@@ -213,7 +220,12 @@ impl Database {
                 "BEGIN; {SCHEMA_V5} PRAGMA user_version = 5; COMMIT;"
             ))?;
         }
-        const { assert!(SCHEMA_VERSION == 5, "add the migration for the new version") };
+        if version < 6 {
+            conn.execute_batch(&format!(
+                "BEGIN; {SCHEMA_V6} PRAGMA user_version = 6; COMMIT;"
+            ))?;
+        }
+        const { assert!(SCHEMA_VERSION == 6, "add the migration for the new version") };
         Ok(Self { conn })
     }
 
@@ -291,9 +303,9 @@ impl Database {
         {
             let mut ins = tx.prepare(
                 "INSERT INTO channels
-                   (subscription_id, kind, position, name, urls, grp, guide_id, logo_url, logo,
+                   (subscription_id, kind, position, name, urls, grp, logo_url, logo,
                     referrer, user_agent)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )?;
             for (pos, ch) in list.channels.iter().enumerate() {
                 let (logo_url, logo) = match &ch.logo {
@@ -308,7 +320,6 @@ impl Database {
                     ch.name,
                     serde_json::to_string(&ch.urls).expect("Vec<String> → JSON"),
                     ch.group,
-                    ch.guide_id,
                     logo_url,
                     logo,
                     ch.http.referrer,
@@ -327,9 +338,9 @@ impl Database {
         tx.execute(
             "UPDATE subscriptions
              SET name = CASE WHEN name = url THEN ?2 ELSE name END,
-                 epg_url = ?3, updated_at = unixepoch(), last_error = NULL
+                 updated_at = unixepoch(), last_error = NULL
              WHERE id = ?1",
-            params![sub_id, name, list.epg_url],
+            params![sub_id, name],
         )?;
         tx.commit()?;
         Ok(list.channels.len())
@@ -397,42 +408,40 @@ impl Database {
 
     /// A subscription's content as a list (for the TV-Maxe `.db` export).
     pub fn export_list(&self, sub_id: i64) -> Result<ChannelList> {
-        let (name, epg_url): (String, Option<String>) = self.conn.query_row(
-            "SELECT name, epg_url FROM subscriptions WHERE id = ?1",
+        let name: String = self.conn.query_row(
+            "SELECT name FROM subscriptions WHERE id = ?1",
             [sub_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )?;
         let mut stmt = self.conn.prepare(
-            "SELECT c.kind, c.name, c.urls, c.grp, c.guide_id, c.logo_url, coalesce(c.logo, l.data),
+            "SELECT c.kind, c.name, c.urls, c.grp, c.logo_url, coalesce(c.logo, l.data),
                     c.referrer, c.user_agent
              FROM channels c LEFT JOIN logos l ON l.url = c.logo_url
              WHERE c.subscription_id = ?1 ORDER BY c.kind = 'radio', c.position",
         )?;
         let channels = stmt
             .query_map([sub_id], |r| {
-                let logo_url: Option<String> = r.get(5)?;
-                let logo: Option<Vec<u8>> = r.get(6)?;
+                let logo_url: Option<String> = r.get(4)?;
+                let logo: Option<Vec<u8>> = r.get(5)?;
                 Ok(Channel {
                     kind: Kind::parse(&r.get::<_, String>(0)?).unwrap_or(Kind::Tv),
                     name: r.get(1)?,
                     urls: parse_urls(&r.get::<_, String>(2)?),
                     group: r.get(3)?,
-                    guide_id: r.get(4)?,
                     logo: match (logo, logo_url) {
                         (Some(b), _) => Logo::Embedded(b),
                         (None, Some(u)) => Logo::Url(u),
                         _ => Logo::None,
                     },
                     http: StreamOptions {
-                        referrer: r.get(7)?,
-                        user_agent: r.get(8)?,
+                        referrer: r.get(6)?,
+                        user_agent: r.get(7)?,
                     },
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
         Ok(ChannelList {
             name: Some(name),
-            epg_url,
             channels,
         })
     }
@@ -443,7 +452,7 @@ impl Database {
     pub fn channels(&self, kind: Kind) -> Result<Vec<StoredChannel>> {
         let mut stmt = self.conn.prepare(
             "SELECT c.id, c.subscription_id, c.name, c.urls, c.grp,
-                    coalesce(c.logo, l.data), s.url = ?2, c.guide_id,
+                    coalesce(c.logo, l.data), s.url = ?2,
                     c.logo_url, l.url IS NOT NULL AND l.data IS NULL, c.referrer, c.user_agent
              FROM channels c
              JOIN subscriptions s ON s.id = c.subscription_id
@@ -461,168 +470,15 @@ impl Database {
                 group: r.get(4)?,
                 logo: r.get(5)?,
                 is_local: r.get(6)?,
-                guide_id: r.get(7)?,
-                logo_url: r.get(8)?,
-                logo_failed: r.get(9)?,
+                logo_url: r.get(7)?,
+                logo_failed: r.get(8)?,
                 http: StreamOptions {
-                    referrer: r.get(10)?,
-                    user_agent: r.get(11)?,
+                    referrer: r.get(9)?,
+                    user_agent: r.get(10)?,
                 },
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    // ---------- TV guide (EPG) ----------
-
-    /// EPG addresses declared by the enabled subscriptions (`url-tvg`, `epgurl`).
-    pub fn epg_source_urls(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT epg_url FROM subscriptions
-             WHERE enabled AND epg_url IS NOT NULL AND trim(epg_url) != ''",
-        )?;
-        let rows = stmt.query_map([], |r| r.get(0))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    /// Which channels exist in the enabled lists, so the parser keeps only what is needed.
-    pub fn epg_wanted(&self) -> Result<Wanted> {
-        let mut stmt = self.conn.prepare(
-            "SELECT c.guide_id, c.name FROM channels c
-             JOIN subscriptions s ON s.id = c.subscription_id WHERE s.enabled",
-        )?;
-        let mut w = Wanted::default();
-        let rows = stmt.query_map([], |r| {
-            Ok((r.get::<_, Option<String>>(0)?, r.get::<_, String>(1)?))
-        })?;
-        for row in rows {
-            let (id, name) = row?;
-            if let Some(id) = id.filter(|i| !i.trim().is_empty()) {
-                let id = id.trim().to_lowercase();
-                // iptv-org: "DisneyChannel.ro@SD" — the guide uses "DisneyChannel.ro".
-                if let Some((base, _)) = id.split_once('@') {
-                    w.ids.insert(base.to_string());
-                }
-                w.ids.insert(id);
-            }
-            w.names.insert(normalize_name(&name));
-        }
-        Ok(w)
-    }
-
-    pub fn epg_fetched_at(&self, url: &str) -> Option<i64> {
-        self.conn
-            .query_row(
-                "SELECT fetched_at FROM epg_sources WHERE url = ?1",
-                [url],
-                |r| r.get(0),
-            )
-            .ok()
-            .flatten()
-    }
-
-    pub fn set_epg_error(&self, url: &str, error: &str) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO epg_sources (url, last_error) VALUES (?1, ?2)
-             ON CONFLICT(url) DO UPDATE SET last_error = excluded.last_error",
-            params![url, error],
-        )?;
-        Ok(())
-    }
-
-    /// Replaces everything that came from one EPG source and deletes programmes
-    /// that ended more than two days ago (relative to `now`).
-    pub fn replace_epg(&mut self, url: &str, guide: &Guide, now: i64) -> Result<usize> {
-        let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM epg_channels WHERE source = ?1", [url])?;
-        tx.execute("DELETE FROM epg_programmes WHERE source = ?1", [url])?;
-        {
-            let mut ch =
-                tx.prepare("INSERT INTO epg_channels (source, id, name) VALUES (?1, ?2, ?3)")?;
-            for c in &guide.channels {
-                for n in &c.names {
-                    ch.execute(params![url, c.id, n])?;
-                }
-            }
-            let mut pr = tx.prepare(
-                "INSERT INTO epg_programmes (source, channel, start, stop, title, descr)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            )?;
-            for p in &guide.programmes {
-                pr.execute(params![url, p.channel, p.start, p.stop, p.title, p.desc])?;
-            }
-        }
-        tx.execute(
-            "INSERT INTO epg_sources (url, fetched_at, last_error) VALUES (?1, unixepoch(), NULL)
-             ON CONFLICT(url) DO UPDATE SET fetched_at = unixepoch(), last_error = NULL",
-            [url],
-        )?;
-        tx.execute(
-            "DELETE FROM epg_programmes WHERE stop < ?1",
-            [now - 2 * 86400],
-        )?;
-        tx.commit()?;
-        Ok(guide.programmes.len())
-    }
-
-    /// The index for matching channels to the guide.
-    pub fn epg_index(&self) -> Result<EpgIndex> {
-        let mut idx = EpgIndex::default();
-        let mut stmt = self
-            .conn
-            .prepare("SELECT DISTINCT channel FROM epg_programmes")?;
-        for id in stmt.query_map([], |r| r.get::<_, String>(0))? {
-            idx.ids.insert(id?);
-        }
-        let mut stmt = self
-            .conn
-            .prepare("SELECT DISTINCT name, id FROM epg_channels")?;
-        for row in stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
-            let (name, id) = row?;
-            idx.by_name.entry(name).or_insert(id);
-        }
-        Ok(idx)
-    }
-
-    /// The current programme on every channel in the guide.
-    pub fn epg_current(&self, now: i64) -> Result<HashMap<String, Programme>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT channel, start, stop, title, descr FROM epg_programmes
-             WHERE start <= ?1 AND stop > ?1",
-        )?;
-        let mut out = HashMap::new();
-        for p in stmt.query_map([now], programme_row)? {
-            let p = p?;
-            out.entry(p.channel.clone()).or_insert(p);
-        }
-        Ok(out)
-    }
-
-    /// A channel's programmes that overlap the interval [from, to).
-    pub fn epg_range(&self, channel: &str, from: i64, to: i64) -> Result<Vec<Programme>> {
-        // GROUP BY start: the same programme can come from several sources.
-        let mut stmt = self.conn.prepare(
-            "SELECT channel, start, max(stop), title, descr FROM epg_programmes
-             WHERE channel = ?1 AND stop > ?2 AND start < ?3
-             GROUP BY start ORDER BY start",
-        )?;
-        let rows = stmt.query_map(params![channel, from, to], programme_row)?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    /// (now, next) on a channel.
-    pub fn epg_now_next(
-        &self,
-        channel: &str,
-        now: i64,
-    ) -> Result<(Option<Programme>, Option<Programme>)> {
-        let progs = self.epg_range(channel, now, now + 2 * 86400)?;
-        let mut it = progs.into_iter();
-        let first = it.next();
-        match first {
-            Some(p) if p.start <= now => Ok((Some(p), it.next())),
-            other => Ok((None, other)),
-        }
     }
 
     // ---------- Logos ----------
@@ -801,44 +657,6 @@ impl Database {
     }
 }
 
-fn programme_row(r: &rusqlite::Row) -> rusqlite::Result<Programme> {
-    Ok(Programme {
-        channel: r.get(0)?,
-        start: r.get(1)?,
-        stop: r.get(2)?,
-        title: r.get(3)?,
-        desc: r.get(4)?,
-    })
-}
-
-/// Links a channel from the lists to its id in the guide: first by `tvg-id`,
-/// then by the normalised name ("Pro TV HD" ↔ "PRO TV").
-#[derive(Debug, Default, Clone)]
-pub struct EpgIndex {
-    ids: HashSet<String>,
-    by_name: HashMap<String, String>,
-}
-
-impl EpgIndex {
-    pub fn is_empty(&self) -> bool {
-        self.ids.is_empty()
-    }
-
-    pub fn resolve(&self, guide_id: Option<&str>, name: &str) -> Option<String> {
-        if let Some(id) = guide_id.map(|g| g.trim().to_lowercase()) {
-            if self.ids.contains(&id) {
-                return Some(id);
-            }
-            if let Some((base, _)) = id.split_once('@')
-                && self.ids.contains(base)
-            {
-                return Some(base.to_string());
-            }
-        }
-        self.by_name.get(&normalize_name(name)).cloned()
-    }
-}
-
 fn parse_urls(json: &str) -> Vec<String> {
     serde_json::from_str(json).unwrap_or_default()
 }
@@ -893,7 +711,6 @@ mod tests {
         radio.logo = Logo::Embedded(b"\x89PNGx".to_vec());
         ChannelList {
             name: Some("Romania".into()),
-            epg_url: None,
             channels: vec![tvr, radio],
         }
     }
@@ -1112,97 +929,10 @@ mod tests {
     }
 
     #[test]
-    fn epg_store_and_lookup() {
-        use crate::epg::parse_xmltv;
-        let mut db = Database::open_in_memory().unwrap();
-        let id = db.add_subscription("x", "http://x").unwrap();
-        let mut tvr = Channel::new(Kind::Tv, "TVR 1", "http://a");
-        tvr.guide_id = Some("TVR1.ro".into());
-        let protv = Channel::new(Kind::Tv, "Pro TV", "http://b");
-        let list = ChannelList {
-            name: None,
-            epg_url: Some("http://epg/ro.xml.gz".into()),
-            channels: vec![tvr, protv],
-        };
-        db.replace_channels(id, &list).unwrap();
-        assert_eq!(db.epg_source_urls().unwrap(), ["http://epg/ro.xml.gz"]);
-
-        let wanted = db.epg_wanted().unwrap();
-        assert!(wanted.ids.contains("tvr1.ro") && wanted.names.contains("protv"));
-
-        let now = 10_000_000;
-        let xml = format!(
-            r#"<tv><channel id="ProTV.ro"><display-name>PRO TV HD</display-name></channel>
-            <programme start="{a}" stop="{b}" channel="TVR1.ro"><title>Acum</title></programme>
-            <programme start="{b}" stop="{c}" channel="TVR1.ro"><title>Urmează</title></programme>
-            <programme start="{a}" stop="{c}" channel="ProTV.ro"><title>Știri</title></programme>
-            <programme start="{a}" stop="{c}" channel="Altul"><title>Nu</title></programme></tv>"#,
-            a = ts(now - 600),
-            b = ts(now + 600),
-            c = ts(now + 3600)
-        );
-        let guide = parse_xmltv(xml.as_bytes(), Some(&wanted), None).unwrap();
-        assert_eq!(
-            db.replace_epg("http://epg/ro.xml.gz", &guide, now).unwrap(),
-            3
-        );
-        // Refreshing does not duplicate.
-        db.replace_epg("http://epg/ro.xml.gz", &guide, now).unwrap();
-        assert!(db.epg_fetched_at("http://epg/ro.xml.gz").is_some());
-
-        let idx = db.epg_index().unwrap();
-        let chans = db.channels(Kind::Tv).unwrap();
-        let tvr_key = idx
-            .resolve(chans[0].guide_id.as_deref(), &chans[0].name)
-            .unwrap();
-        let pro_key = idx
-            .resolve(chans[1].guide_id.as_deref(), &chans[1].name)
-            .unwrap();
-        assert_eq!(
-            (tvr_key.as_str(), pro_key.as_str()),
-            ("tvr1.ro", "protv.ro")
-        );
-
-        let (cur, next) = db.epg_now_next(&tvr_key, now).unwrap();
-        assert_eq!(cur.unwrap().title, "Acum");
-        assert_eq!(next.unwrap().title, "Urmează");
-        let current = db.epg_current(now).unwrap();
-        assert_eq!(current[&pro_key].title, "Știri");
-        assert_eq!(
-            db.epg_range(&tvr_key, now - 3600, now + 7200)
-                .unwrap()
-                .len(),
-            2
-        );
-    }
-
-    /// Unix → XMLTV format in UTC.
-    fn ts(t: i64) -> String {
-        let (days, rem) = (t.div_euclid(86400), t.rem_euclid(86400));
-        // civil_from_days (Hinnant)
-        let z = days + 719468;
-        let era = z.div_euclid(146097);
-        let doe = z - era * 146097;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        let y = yoe + era * 400 + i64::from(m <= 2);
-        format!(
-            "{y:04}{m:02}{d:02}{:02}{:02}{:02} +0000",
-            rem / 3600,
-            rem / 60 % 60,
-            rem % 60
-        )
-    }
-
-    #[test]
-    fn http_options_and_feed_suffix() {
+    fn http_options_are_stored_and_exported() {
         let mut db = Database::open_in_memory().unwrap();
         let id = db.add_subscription("x", "http://x").unwrap();
         let mut ch = Channel::new(Kind::Tv, "Disney Channel (Romania)", "http://d");
-        ch.guide_id = Some("DisneyChannel.ro@SD".into());
         ch.http.referrer = Some("https://ref/".into());
         ch.http.user_agent = Some("UA/1".into());
         ch.logo = Logo::Url("http://logo/d.png".into());
@@ -1218,21 +948,6 @@ mod tests {
         db.store_logo("http://logo/d.png", None).unwrap();
         assert!(db.channels(Kind::Tv).unwrap()[0].logo_failed);
         assert_eq!(db.export_list(id).unwrap().channels[0].http, ch.http);
-
-        let w = db.epg_wanted().unwrap();
-        assert!(w.ids.contains("disneychannel.ro") && w.ids.contains("disneychannel.ro@sd"));
-        let guide = crate::epg::parse_xmltv(
-            br#"<tv><programme start="20261014200000 +0000" stop="20261014210000 +0000" channel="DisneyChannel.ro"><title>Desene</title></programme></tv>"#,
-            Some(&w),
-            None,
-        )
-        .unwrap();
-        db.replace_epg("g", &guide, 0).unwrap();
-        let idx = db.epg_index().unwrap();
-        assert_eq!(
-            idx.resolve(s.guide_id.as_deref(), &s.name).as_deref(),
-            Some("disneychannel.ro")
-        );
     }
 
     #[test]
@@ -1255,15 +970,57 @@ mod tests {
             "veche",
             "the data stays"
         );
-        assert!(
-            db.epg_source_urls().unwrap().is_empty(),
-            "the EPG tables exist"
-        );
         let v: i64 = db
             .conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 5);
+        assert_eq!(v, SCHEMA_VERSION);
+        drop(db);
+        for ext in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{ext}", p.display()));
+        }
+    }
+
+    #[test]
+    fn migration_removes_the_old_tv_guide() {
+        let p = std::env::temp_dir().join(format!("tvmaxe-v5-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        {
+            let c = Connection::open(&p).unwrap();
+            c.execute_batch(&format!(
+                "{SCHEMA} {SCHEMA_V2} {SCHEMA_V3} {SCHEMA_V4} {SCHEMA_V5} PRAGMA user_version = 5;
+                 INSERT INTO subscriptions (id, name, url, epg_url) VALUES (1, 'x', 'http://x', 'http://epg');
+                 INSERT INTO channels (subscription_id, kind, position, name, urls, guide_id)
+                     VALUES (1, 'tv', 0, 'TVR 1', '[\"http://a/1\"]', 'TVR1.ro');
+                 INSERT INTO epg_programmes (source, channel, start, stop, title)
+                     VALUES ('http://epg', 'tvr1.ro', 1, 2, 'Acum');
+                 INSERT INTO settings VALUES ('pref.epg_urls', 'http://epg');
+                 INSERT INTO settings VALUES ('volume', '70');"
+            ))
+            .unwrap();
+        }
+        let db = Database::open(&p).unwrap();
+        let tv = db.channels(Kind::Tv).unwrap();
+        assert_eq!(
+            (tv.len(), tv[0].name.as_str()),
+            (1, "TVR 1"),
+            "channels stay"
+        );
+        assert_eq!(
+            db.setting::<f64>("volume"),
+            Some(70.0),
+            "other settings stay"
+        );
+        assert_eq!(db.setting::<String>("pref.epg_urls"), None);
+        let tables: i64 = db
+            .conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name LIKE 'epg%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 0, "the guide tables are gone");
         drop(db);
         for ext in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{ext}", p.display()));

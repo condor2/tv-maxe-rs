@@ -49,13 +49,11 @@ lists, but it is a complete rewrite and contains no code from the original proje
 - **Subscriptions** from the internet or from disk (TV-Maxe `.db`, M3U), which can be enabled,
   disabled and updated
 - **Xtream Codes accounts**: sign in to an IPTV panel with a server, user name and password; the live
-  channels, their groups and the panel's TV guide are loaded automatically
+  channels and their groups are loaded automatically
 - **Several sources per channel**: when one URL fails, the next is tried automatically; right-click a
   channel to pick a source yourself, and the info bar shows which one is playing (*source 2/3*)
 - **My channels**: your own channels, added by hand, editable from the right-click menu and exportable
   as a TV-Maxe `.db`
-- **TV guide (EPG)** from XMLTV (`.xml` / `.xml.gz`): what's on now under every channel, the current
-  programme with progress and the next one under the video, and a day-by-day **TV guide** window
 - **Large lists**: filter by group, diacritics-insensitive search, logos downloaded only for the
   visible rows (a 12,000-channel list loads in about two seconds)
 - **Per-channel HTTP headers** (`http-referrer`, `http-user-agent`, `#EXTVLCOPT`) for servers that
@@ -66,13 +64,13 @@ lists, but it is a complete rewrite and contains no code from the original proje
 - **Keyboard zapping**: Page Up / Page Down, channel numbers typed on the keyboard, Backspace for the
   last channel watched, with the channel shown over the video
 - **Media keys and desktop controls** (MPRIS): play/pause, stop, next/previous channel and volume
-  from the keyboard, the sound applet or `playerctl`, with the channel and programme shown
+  from the keyboard, the sound applet or `playerctl`, with the channel shown
 - **Audio track selection** for channels with several languages, with preferred languages that
   are picked automatically
 - **Recording and scheduler**: record the channel you are watching with one click, or schedule
-  recordings (once, daily or weekly) from the TV guide, the channel menu or the Recordings window
-- **Sleep timer**: stops playback, quits, suspends or shuts down the computer after a while or at
-  the end of the programme, with the volume fading out
+  recordings (once, daily or weekly) from the channel menu or the Recordings window
+- **Sleep timer**: stops playback, quits, suspends or shuts down the computer after a while,
+  with the volume fading out
 - **Imports** the old TV-Maxe local list (`~/.tvmaxe/userlist.db`) on first start
 - **English and Romanian** interface, following the system language
 - Works on **Wayland and X11**
@@ -155,7 +153,6 @@ overwrite them; add your own version to *My channels* instead.
 | Ctrl+R, F5 | Update the lists |
 | Ctrl+N | Add a channel |
 | Ctrl+, | Preferences |
-| Ctrl+G | TV guide |
 | Page Down / Page Up | Next / previous channel |
 | 0–9 | Channel number (1 = first channel in the list) |
 | Backspace | Last channel watched |
@@ -173,8 +170,7 @@ overwrite them; add your own version to *My channels* instead.
 
 **TV-Maxe → Preferences…** has hardware decoding, network buffer, connection timeout, video
 quality (*Automatic*, *Best quality*, *Fast*), preferred audio languages, the User-Agent for lists
-and streams, extra EPG
-sources, the recordings folder, updating the lists at startup, logo downloads and playing the
+and streams, the recordings folder, updating the lists at startup, logo downloads and playing the
 last channel on startup. Changes apply immediately.
 
 ## Favourites and zapping
@@ -211,8 +207,7 @@ player (`org.mpris.MediaPlayer2.tvmaxe`), so the desktop can control it:
 | Volume slider of the sound applet | The volume of TV-Maxe |
 | Player name in the panel or lock screen | Raises the window; *Quit* closes it |
 
-The programme on air is shown as the title and the channel as the artist (without a guide,
-the channel name is the title). It works with GNOME, KDE Plasma, Xfce and anything that
+The channel name is shown as the title. It works with GNOME, KDE Plasma, Xfce and anything that
 speaks MPRIS:
 
 ```sh
@@ -237,9 +232,8 @@ list in order of preference, for example `ro, en`. Two- and three-letter codes b
 
 | How | What it does |
 |---|---|
-| **●** button (Ctrl+Shift+R) | Records the channel you are watching until you press it again. The title is the programme on air, when the TV guide knows it |
+| **●** button (Ctrl+Shift+R) | Records the channel you are watching until you press it again |
 | Channel menu → **Record now** | The same, for any channel, without switching to it |
-| TV guide → **●** next to a programme | Schedules that programme, 2 minutes early and 5 minutes late, since broadcasts rarely run exactly on time |
 | Channel menu → **Schedule recording…** | Schedules a recording: date, start, end (an end before the start is the next day) and repeat (once, every day, every week) |
 | **TV-Maxe → Recordings…** (Ctrl+J) | Lists running, scheduled and finished recordings: stop, edit or cancel them, play a finished one in TV-Maxe or show it in its folder |
 
@@ -263,8 +257,7 @@ How it works:
 
 **TV-Maxe → Sleep timer…** (Ctrl+T) sets what happens and when:
 
-- **After:** a number of minutes (one click for 15, 30, 45, 60, 90 or 120), or the end of the programme
-  on air when the TV guide knows it.
+- **After:** a number of minutes (one click for 15, 30, 45, 60, 90 or 120).
 - **Then:** stop playback, quit TV-Maxe, suspend the computer or shut it down. Suspend and shut down
   go through logind and are offered only when the system allows them.
 
@@ -290,7 +283,6 @@ Details:
   *radio* go to the Radio tab.
 - Each channel has two sources: MPEG-TS first, HLS (`.m3u8`) as the fallback, when the panel offers
   both.
-- The panel's TV guide (`xmltv.php`) is used automatically.
 - The password is hidden in the interface. The subscription is named after the server.
 - Most panels allow only a few simultaneous connections per account: while a recording runs, watching
   another channel counts as a second connection.
@@ -303,14 +295,9 @@ The format is detected from the content, not from the file extension.
 |---|---|
 | TV-Maxe `.db` | SQLite with `info`, `tv_channels`, `radio_channels`; icons as base64 PNG (0.x) or blob (NG); `streamurls` as JSON |
 | TV-Maxe text (old) | `\|tvchannels\|\|newchannel\|Name\|-\|url\|-\|logo…` |
-| M3U / M3U8 | `tvg-id`, `tvg-logo`, `group-title`, `#EXTGRP`, `url-tvg` / `x-tvg-url`, `radio="true"`, `http-referrer`, `http-user-agent`, `#EXTVLCOPT` |
+| M3U / M3U8 | `tvg-logo`, `group-title`, `#EXTGRP`, `radio="true"`, `http-referrer`, `http-user-agent`, `#EXTVLCOPT` |
 
 In M3U files, consecutive URL lines after the same `#EXTINF` become fallback URLs of one channel.
-
-**TV guide:** sources come from the lists (`url-tvg` in M3U, `epgurl` in TV-Maxe) or from
-Preferences. Channels are matched by `tvg-id`, then by name (ignoring diacritics and HD/FHD
-suffixes). Only channels present in your lists and the days from yesterday to a week ahead are
-kept; the guide refreshes every 12 hours.
 
 ## Language
 
@@ -336,7 +323,6 @@ Everything is stored in one SQLite database, `~/.local/share/tvmaxe/tvmaxe.db`:
 | `subscriptions` | Subscriptions: name, URL, enabled, last update, last error |
 | `channels` | Local copy of the channels, so TV-Maxe starts without internet too |
 | `logos` | Downloaded logos; failures are remembered and not retried on every start |
-| `epg_sources`, `epg_channels`, `epg_programmes` | The downloaded TV guide |
 | `recordings` | Recordings: channel and URLs, start, end, repeat, status and the files written |
 | `settings` | Preferences (`pref.*`), volume, window size, tab and last channel |
 
@@ -399,17 +385,16 @@ Wayland. The video capture and the mpv log are kept as artifacts.
 crates/tvmaxe-core/          no UI, fully unit-tested
   src/formats/               list detection and parsers (TV-Maxe .db, TV-Maxe text, M3U), .db export
   src/formats/xtream.rs      Xtream Codes: account, API addresses, channels from the JSON answers
-  src/epg.rs                 XMLTV parser (gzip, filtering, name matching)
-  src/db.rs                  SQLite storage: subscriptions, channels, logos, guide, settings
-  src/net.rs                 downloads of lists, logos and guides (worker threads)
+  src/db.rs                  SQLite storage: subscriptions, channels, logos, recordings, settings
+  src/net.rs                 downloads of lists and logos (worker threads)
   src/recording.rs           recordings: model, scheduling rules, file names
   src/i18n.rs, src/i18n/     tr / trn / fill and the Romanian catalog
 crates/tvmaxe/               GTK 4 application
   src/main.rs                the binary: calls tvmaxe::run()
   src/lib.rs                 application, menu and style
-  src/window.rs, window/     main window, playback, subscriptions, logos, guide, recording scheduler, sleep timer
+  src/window.rs, window/     main window, playback, subscriptions, logos, recording scheduler, sleep timer
   src/channel_list.rs        TV / Radio tab
-  src/dialogs/               Subscriptions, Xtream Codes account, Add channel, Preferences, TV guide, Recordings, Sleep timer, About
+  src/dialogs/               Subscriptions, Xtream Codes account, Add channel, Preferences, Recordings, Sleep timer, About
   src/settings.rs            preferences stored in SQLite
   src/sleep.rs               sleep timer: actions, volume fade, countdown text
   src/mpris.rs               MPRIS D-Bus service (media keys, sound applet, playerctl)

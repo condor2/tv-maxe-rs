@@ -15,7 +15,6 @@
 //! └──────────────────────────────────────────────────────────────┘
 //! ```
 
-mod epg;
 mod mpris;
 mod recordings;
 mod sleep;
@@ -35,7 +34,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 use tvmaxe_core::i18n::{fill, tr};
-use tvmaxe_core::{Database, EpgIndex, Kind, net};
+use tvmaxe_core::{Database, Kind, net};
 
 struct Current {
     /// The channel's database id (for editing and choosing the source).
@@ -45,18 +44,14 @@ struct Current {
     urls: Vec<String>,
     detail: String,
     texture: Option<gdk::Texture>,
-    epg_key: Option<String>,
     http: StreamOptions,
 }
 
-/// The channel the "TV guide" window opens for.
+/// A channel to schedule a recording for.
 #[derive(Clone)]
-pub struct GuideTarget {
+pub struct ChannelTarget {
     pub name: String,
     pub kind: Kind,
-    pub epg_key: Option<String>,
-    pub texture: Option<gdk::Texture>,
-    /// For recording a programme from the guide.
     pub urls: Vec<String>,
     pub http: StreamOptions,
 }
@@ -81,10 +76,6 @@ pub struct MainWindow {
     info_logo: gtk::Image,
     info_name: gtk::Label,
     info_detail: gtk::Label,
-    epg_box: gtk::Box,
-    epg_now: gtk::Label,
-    epg_progress: gtk::ProgressBar,
-    epg_next: gtk::Label,
 
     controls: gtk::Box,
     play_btn: gtk::Button,
@@ -102,8 +93,6 @@ pub struct MainWindow {
     /// Reusable dialogs (hidden on close, not destroyed).
     pub subs_dialog: RefCell<Option<Rc<dialogs::SubscriptionsDialog>>>,
     settings: RefCell<Settings>,
-    epg_index: RefCell<EpgIndex>,
-    pub guide_dialog: RefCell<Option<Rc<dialogs::GuideDialog>>>,
     pub recordings_dialog: RefCell<Option<Rc<dialogs::RecordingsDialog>>>,
     /// Active recorders, by recording id.
     recorders: RefCell<std::collections::HashMap<i64, crate::player::Recorder>>,
@@ -229,38 +218,6 @@ impl MainWindow {
             .build();
         info_text.append(&info_name);
         info_text.append(&info_detail);
-        // TV guide for the current channel: now (with progress) and the next programme.
-        let epg_now = gtk::Label::builder()
-            .xalign(0.0)
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .build();
-        let epg_progress = gtk::ProgressBar::builder()
-            .valign(gtk::Align::Center)
-            .build();
-        epg_progress.add_css_class("epg-progress");
-        let epg_next = gtk::Label::builder()
-            .xalign(0.0)
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .build();
-        epg_next.add_css_class("dim-label");
-        let epg_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(2)
-            .hexpand(true)
-            .visible(false)
-            .tooltip_text(tr("TV guide (Ctrl+G)"))
-            .build();
-        epg_box.append(&epg_now);
-        epg_box.append(&epg_progress);
-        epg_box.append(&epg_next);
-        let epg_click = gtk::GestureClick::new();
-        epg_click.connect_released(|g, _, _, _| {
-            if let Some(w) = g.widget() {
-                let _ = w.activate_action("win.guide", None);
-            }
-        });
-        epg_box.add_controller(epg_click);
-
         let info_bar = gtk::Box::builder()
             .spacing(10)
             .margin_start(8)
@@ -269,7 +226,6 @@ impl MainWindow {
             .build();
         info_bar.append(&info_logo);
         info_bar.append(&info_text);
-        info_bar.append(&epg_box);
 
         // Control bar: Play, Stop, time, fullscreen, volume.
         let play_btn = icon_button("media-playback-start-symbolic", tr("Play"));
@@ -408,7 +364,6 @@ impl MainWindow {
         volume.set_value(vol);
         player.set_volume(vol);
         let settings = Settings::load(&db);
-        let epg_index = db.epg_index().unwrap_or_default();
         player.apply_settings(&settings.playback);
         net::set_user_agent(settings.playback.user_agent.clone());
 
@@ -429,10 +384,6 @@ impl MainWindow {
             info_logo,
             info_name,
             info_detail,
-            epg_box,
-            epg_now,
-            epg_progress,
-            epg_next,
             controls,
             play_btn,
             time_label,
@@ -446,8 +397,6 @@ impl MainWindow {
             list_visible: Cell::new(true),
             subs_dialog: RefCell::default(),
             settings: RefCell::new(settings),
-            epg_index: RefCell::new(epg_index),
-            guide_dialog: RefCell::default(),
             recordings_dialog: RefCell::default(),
             recorders: RefCell::default(),
             record_btn,
@@ -492,8 +441,6 @@ impl MainWindow {
         }
         if s.refresh_on_start {
             this.refresh_subscriptions(None);
-        } else {
-            this.refresh_epg(false);
         }
         Ok(this)
     }
@@ -602,14 +549,6 @@ impl MainWindow {
             glib::ControlFlow::Continue
         });
         let w = Rc::downgrade(self);
-        glib::timeout_add_local(Duration::from_secs(30), move || {
-            let Some(w) = w.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-            w.refresh_epg_view();
-            glib::ControlFlow::Continue
-        });
-        let w = Rc::downgrade(self);
         glib::timeout_add_local(Duration::from_millis(120), move || {
             let Some(w) = w.upgrade() else {
                 return glib::ControlFlow::Break;
@@ -658,7 +597,6 @@ impl MainWindow {
         add("search", |w| w.current_list().focus_search());
         add("about", |w| dialogs::about(&w.window));
         add("preferences", dialogs::preferences);
-        add("guide", dialogs::GuideDialog::present);
         add("recordings", dialogs::RecordingsDialog::present);
         add("record", |w| w.record_now());
         add("sleep-timer", dialogs::sleep_timer);
@@ -859,7 +797,6 @@ impl MainWindow {
             urls: ch.urls.clone(),
             detail,
             texture: row.texture(),
-            epg_key: row.epg_key.clone(),
             http: ch.http.clone(),
         });
         let _ = self
@@ -867,18 +804,8 @@ impl MainWindow {
             .borrow()
             .set_setting("last_channel", ch.urls.first().cloned().unwrap_or_default());
         self.update_now_playing();
-        self.update_epg_info();
         self.player
             .play_from(ch.urls.clone(), ch.http.clone(), source);
-        if let (Some(d), Some(t)) = (
-            self.guide_dialog
-                .borrow()
-                .clone()
-                .filter(|d| d.is_visible()),
-            self.guide_target(),
-        ) {
-            d.show_channel(t);
-        }
     }
 
     fn play_or_pause(&self) {
@@ -1057,31 +984,31 @@ impl MainWindow {
             urls: files.to_vec(),
             detail: tr("Recording").to_string(),
             texture: None,
-            epg_key: None,
             http: StreamOptions::default(),
         });
         self.update_now_playing();
-        self.update_epg_info();
         self.player.play(files.to_vec(), StreamOptions::default());
     }
 
-    /// The schedule form for a programme from the TV guide, with a few
-    /// minutes of margin on both sides.
-    pub fn schedule_programme(
-        self: &Rc<Self>,
-        target: &GuideTarget,
-        p: &tvmaxe_core::epg::Programme,
-    ) {
-        let mut rec = tvmaxe_core::recording::Recording::new(
-            &target.name,
-            target.kind,
-            &target.urls,
-            &target.http,
-            p.start - recordings::EARLY_SECS,
-            Some(p.stop + recordings::LATE_SECS),
-        );
-        rec.title = p.title.clone();
-        dialogs::schedule_dialog(self, rec);
+    /// The channel to schedule a recording for: the one playing, otherwise
+    /// the selected one.
+    pub fn channel_target(&self) -> Option<ChannelTarget> {
+        if let Some(c) = self.current.borrow().as_ref() {
+            return Some(ChannelTarget {
+                name: c.name.clone(),
+                kind: c.kind,
+                urls: c.urls.clone(),
+                http: c.http.clone(),
+            });
+        }
+        let obj = self.current_list().selected()?;
+        let row = row_of(obj.upcast_ref());
+        Some(ChannelTarget {
+            name: row.channel.name.clone(),
+            kind: row.channel.kind,
+            urls: row.channel.urls.clone(),
+            http: row.channel.http.clone(),
+        })
     }
 
     // ---------- Channel menu (right-click) ----------

@@ -1,6 +1,6 @@
 [package]
 name = "tvmaxe-core"
-description = "TV-Maxe core: channel-list formats, XMLTV guide, SQLite storage and downloads"
+description = "TV-Maxe core: channel-list formats, SQLite storage and downloads"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,8 +8,6 @@ license.workspace = true
 
 [dependencies]
 base64 = "0.23.1"
-flate2 = "1.1.10"
-quick-xml = "0.42.0"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde_json = "1.0.154"
 ureq = "3.4.2"

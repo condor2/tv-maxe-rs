@@ -88,7 +88,7 @@ fn subscribe(db: &TempDb, account: &Account) -> i64 {
 }
 
 #[test]
-fn channels_groups_guide_and_sources_are_stored() {
+fn channels_groups_and_sources_are_stored() {
     let p = good_panel("ana", "s3cret");
     let account = Account::new(&p.base, "ana", "s3cret").unwrap();
     let db = TempDb::new("ok");
@@ -105,7 +105,6 @@ fn channels_groups_guide_and_sources_are_stored() {
     );
     assert_eq!(radio.len(), 1);
     assert_eq!(tv[0].group.as_deref(), Some("Romania"));
-    assert_eq!(tv[0].guide_id.as_deref(), Some("protv.ro"));
     assert_eq!(
         tv[0].urls,
         [
@@ -121,8 +120,6 @@ fn channels_groups_guide_and_sources_are_stored() {
         "{}",
         sub.display_url()
     );
-    // The panel's guide is used.
-    assert_eq!(db.epg_source_urls().unwrap(), [account.epg_url()]);
 }
 
 #[test]

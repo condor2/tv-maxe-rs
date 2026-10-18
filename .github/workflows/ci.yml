@@ -96,4 +96,5 @@ jobs:
           path: |
             ${{ runner.temp }}/video-capture.png
             ${{ runner.temp }}/mpv.log
+            ${{ runner.temp }}/mpv.log.rec
           if-no-files-found: ignore

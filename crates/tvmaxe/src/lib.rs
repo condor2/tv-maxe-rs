@@ -77,7 +77,6 @@ pub fn setup_app(app: &gtk::Application) {
         ("win.refresh", &["<Ctrl>r", "F5"]),
         ("win.add-channel", &["<Ctrl>n"]),
         ("win.preferences", &["<Ctrl>comma"]),
-        ("win.guide", &["<Ctrl>g"]),
         ("win.recordings", &["<Ctrl>j"]),
         ("win.record", &["<Ctrl><Shift>r"]),
         ("win.sleep-timer", &["<Ctrl>t"]),
@@ -151,7 +150,6 @@ fn menu_bar() -> gio::Menu {
     view.append(Some(tr("Fullscreen")), Some("win.fullscreen"));
     view.append(Some(tr("Channel list")), Some("win.show-list"));
     view.append(Some(tr("Search channel")), Some("win.search"));
-    view.append(Some(tr("TV guide")), Some("win.guide"));
     let zap = gio::Menu::new();
     // Handled by the window's key controller (they must not steal keys from
     // text fields), so the keys are only shown here.
@@ -192,9 +190,6 @@ fn load_css() {
          .video-placeholder label { color: #d0d0d0; font-size: 1.4em; }
          .video-placeholder image { color: #6a6a6a; }
          .channel-title { font-weight: bold; }
-         .epg-progress progress, .epg-progress trough { min-height: 4px; }
-         .epg-current { background: alpha(@theme_selected_bg_color, 0.18); border-radius: 6px; }
-         .epg-past { opacity: 0.55; }
          .recording-indicator { color: #e01b24; font-weight: bold; }
          .recording-active { color: #e01b24; }
          .favourite-star { color: #e5a50a; }

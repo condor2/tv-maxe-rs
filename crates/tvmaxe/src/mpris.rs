@@ -1,6 +1,5 @@
 //! MPRIS 2: lets the desktop control TV-Maxe (media keys, the sound applet
-//! of GNOME / KDE / Xfce, `playerctl`) and shows the channel and the programme
-//! on air.
+//! of GNOME / KDE / Xfce, `playerctl`) and shows the channel being played.
 //!
 //! This module only speaks D-Bus. It knows nothing about the window: the
 //! window feeds it a [`State`] and receives [`Command`]s.
@@ -103,8 +102,6 @@ pub struct State {
     pub status: Status,
     /// The channel (database id, name), if one was chosen.
     pub channel: Option<(i64, String)>,
-    /// The programme on air on that channel, if the guide knows it.
-    pub programme: Option<String>,
     /// From 0.0 to 1.0.
     pub volume: f64,
     /// There are channels to go to with Next / Previous.
@@ -117,7 +114,7 @@ fn changed(old: &State, new: &State) -> Vec<&'static str> {
     if old.status != new.status {
         v.push("PlaybackStatus");
     }
-    if old.channel != new.channel || old.programme != new.programme {
+    if old.channel != new.channel {
         v.push("Metadata");
     }
     if old.volume != new.volume {
@@ -135,8 +132,7 @@ fn object_path(path: &str) -> Variant {
         .to_variant()
 }
 
-/// `Metadata`: the programme is the title and the channel the artist, as
-/// players show a song; without a guide the channel is the title.
+/// `Metadata`: the channel is the title, as players show a song.
 fn metadata(state: &State) -> HashMap<String, Variant> {
     let mut m = HashMap::new();
     let Some((id, name)) = &state.channel else {
@@ -147,15 +143,7 @@ fn metadata(state: &State) -> HashMap<String, Variant> {
         "mpris:trackid".to_string(),
         object_path(&format!("/io/condor2/TvMaxe/channel/{}", id.unsigned_abs())),
     );
-    match &state.programme {
-        Some(programme) => {
-            m.insert("xesam:title".to_string(), programme.to_variant());
-            m.insert("xesam:artist".to_string(), vec![name.clone()].to_variant());
-        }
-        None => {
-            m.insert("xesam:title".to_string(), name.to_variant());
-        }
-    }
+    m.insert("xesam:title".to_string(), name.to_variant());
     m
 }
 
@@ -331,7 +319,6 @@ mod tests {
         State {
             status: Status::Playing,
             channel: Some((7, "Kanal D".into())),
-            programme: Some("Știri".into()),
             volume: 0.5,
             can_navigate: true,
         }
@@ -354,7 +341,7 @@ mod tests {
         };
         assert_eq!(changed(&a, &b), ["PlaybackStatus"]);
         let c = State {
-            programme: None,
+            channel: Some((8, "Pro TV".into())),
             volume: 1.0,
             ..a.clone()
         };
@@ -362,28 +349,13 @@ mod tests {
     }
 
     #[test]
-    fn metadata_shows_programme_and_channel() {
+    fn metadata_shows_the_channel() {
         let m = metadata(&playing());
-        assert_eq!(m["xesam:title"].get::<String>().as_deref(), Some("Știri"));
-        assert_eq!(
-            m["xesam:artist"].get::<Vec<String>>(),
-            Some(vec!["Kanal D".to_string()])
-        );
+        assert_eq!(m["xesam:title"].get::<String>().as_deref(), Some("Kanal D"));
         assert_eq!(
             m["mpris:trackid"].str(),
             Some("/io/condor2/TvMaxe/channel/7")
         );
-    }
-
-    #[test]
-    fn metadata_without_guide_uses_the_channel_name() {
-        let s = State {
-            programme: None,
-            ..playing()
-        };
-        let m = metadata(&s);
-        assert_eq!(m["xesam:title"].get::<String>().as_deref(), Some("Kanal D"));
-        assert!(!m.contains_key("xesam:artist"));
     }
 
     #[test]

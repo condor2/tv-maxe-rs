@@ -202,62 +202,6 @@ pub fn preferences(main: &Rc<MainWindow>) {
             (tr("Download channel logos"), None, logos.upcast_ref()),
         ],
     ));
-    let epg_view = gtk::TextView::builder()
-        .wrap_mode(gtk::WrapMode::WordChar)
-        .top_margin(6)
-        .bottom_margin(6)
-        .left_margin(6)
-        .right_margin(6)
-        .build();
-    epg_view.buffer().set_text(&s.extra_epg_urls.join("\n"));
-    let u = update.clone();
-    epg_view.buffer().connect_changed(move |b| {
-        let urls = crate::settings::parse_url_lines(&b.text(&b.start_iter(), &b.end_iter(), false));
-        u(&|s| s.extra_epg_urls = urls.clone())
-    });
-    let epg_scroll = gtk::ScrolledWindow::builder()
-        .child(&epg_view)
-        .min_content_height(64)
-        .has_frame(true)
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .build();
-    let epg_hint = gtk::Label::builder()
-        .label(tr(
-            "XMLTV addresses (.xml or .xml.gz), one per line. M3U lists usually declare \
-             their own guide (url-tvg), so this is only needed for extra sources.",
-        ))
-        .xalign(0.0)
-        .wrap(true)
-        .max_width_chars(60)
-        .build();
-    epg_hint.add_css_class("dim-label");
-    epg_hint.add_css_class("caption");
-    let epg_heading = gtk::Label::builder()
-        .label(tr("TV guide"))
-        .xalign(0.0)
-        .build();
-    epg_heading.add_css_class("channel-title");
-    let epg_section = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(8)
-        .build();
-    let epg_inner = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(6)
-        .margin_start(12)
-        .build();
-    epg_inner.append(
-        &gtk::Label::builder()
-            .label(tr("Extra EPG sources"))
-            .xalign(0.0)
-            .build(),
-    );
-    epg_inner.append(&epg_hint);
-    epg_inner.append(&epg_scroll);
-    epg_section.append(&epg_heading);
-    epg_section.append(&epg_inner);
-    content.append(&epg_section);
-
     content.append(&section(
         tr("Recordings"),
         &[(
@@ -305,7 +249,6 @@ pub fn preferences(main: &Rc<MainWindow>) {
         quality.set_selected(0);
         ua.set_text("");
         alang.set_text("");
-        epg_view.buffer().set_text("");
         refresh.set_active(d.refresh_on_start);
         logos.set_active(d.download_logos);
         autoplay.set_active(d.autoplay_last);
@@ -332,16 +275,6 @@ pub fn preferences(main: &Rc<MainWindow>) {
         glib::Propagation::Proceed
     });
     win.add_controller(keys);
-    let initial_epg = s.extra_epg_urls.clone();
-    let m = Rc::downgrade(main);
-    win.connect_close_request(move |_| {
-        if let Some(m) = m.upgrade()
-            && m.settings().extra_epg_urls != initial_epg
-        {
-            m.refresh_epg(false);
-        }
-        glib::Propagation::Proceed
-    });
     win.present();
 }
 

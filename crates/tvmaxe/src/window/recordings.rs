@@ -16,11 +16,6 @@ use tvmaxe_core::net::unix_now;
 use tvmaxe_core::recording::{self, Action, Recording, Status};
 use tvmaxe_core::{Kind, StreamOptions};
 
-/// Margins added around a programme recorded from the TV guide, because
-/// broadcasts rarely start and end exactly on time.
-pub const EARLY_SECS: i64 = 2 * 60;
-pub const LATE_SECS: i64 = 5 * 60;
-
 impl MainWindow {
     pub(super) fn start_recording_scheduler(self: &Rc<Self>) {
         let w = Rc::downgrade(self);
@@ -235,18 +230,7 @@ impl MainWindow {
                 self.set_status(tr("Choose a channel to record"));
                 return;
             };
-            let now = unix_now();
-            // The programme on air becomes the title, when the guide knows it.
-            let title = c
-                .epg_key
-                .as_deref()
-                .and_then(|k| self.db.borrow().epg_now_next(k, now).ok())
-                .and_then(|(cur, _)| cur)
-                .map(|p| p.title)
-                .unwrap_or_default();
-            let mut r = Recording::new(&c.name, c.kind, &c.urls, &c.http, now, None);
-            r.title = title;
-            r
+            Recording::new(&c.name, c.kind, &c.urls, &c.http, unix_now(), None)
         };
         self.start_draft(draft);
     }

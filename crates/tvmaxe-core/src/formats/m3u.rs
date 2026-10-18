@@ -1,7 +1,7 @@
 //! Lenient parser for "extended" M3U:
 //!
 //! ```text
-//! #EXTM3U url-tvg="https://example.org/epg.xml"
+//! #EXTM3U
 //! #EXTINF:-1 tvg-id="TVR1.ro" tvg-logo="https://…/tvr1.png" group-title="Generaliste",TVR 1
 //! https://example.org/tvr1/index.m3u8
 //! ```
@@ -24,9 +24,6 @@ pub fn parse_m3u(input: &str) -> ChannelList {
 
         if let Some(rest) = line.strip_prefix("#EXTM3U") {
             let attrs = parse_attrs(rest);
-            list.epg_url = attr(&attrs, "url-tvg")
-                .or_else(|| attr(&attrs, "x-tvg-url"))
-                .and_then(|s| non_empty(s.split(',').next().unwrap_or(s)));
             list.name = attr(&attrs, "name").and_then(non_empty);
         } else if let Some(rest) = line.strip_prefix("#EXTINF:") {
             push_pending(&mut list, &mut pending, &mut pending_group);
@@ -102,7 +99,6 @@ fn parse_extinf(rest: &str) -> Channel {
         name: name.trim().to_string(),
         urls: Vec::new(),
         group: attr(&attrs, "group-title").and_then(non_empty),
-        guide_id: attr(&attrs, "tvg-id").and_then(non_empty),
         logo: attr(&attrs, "tvg-logo")
             .and_then(non_empty)
             .map_or(Logo::None, Logo::Url),
@@ -187,7 +183,7 @@ fn name_from_url(url: &str) -> String {
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = r#"#EXTM3U url-tvg="https://epg.example/ro.xml"
+    const SAMPLE: &str = r#"#EXTM3U
 #EXTINF:-1 tvg-id="TVR1.ro" tvg-logo="https://logo/tvr1.png" group-title="Generaliste",TVR 1
 https://example.org/tvr1/index.m3u8
 
@@ -204,12 +200,10 @@ http://radio.example/kiss
     #[test]
     fn header_and_attributes() {
         let p = parse_m3u(SAMPLE);
-        assert_eq!(p.epg_url.as_deref(), Some("https://epg.example/ro.xml"));
         assert_eq!(p.channels.len(), 4);
         let tvr = &p.channels[0];
         assert_eq!(tvr.name, "TVR 1");
         assert_eq!(tvr.kind, Kind::Tv);
-        assert_eq!(tvr.guide_id.as_deref(), Some("TVR1.ro"));
         assert_eq!(tvr.logo, Logo::Url("https://logo/tvr1.png".into()));
         assert_eq!(tvr.urls, vec!["https://example.org/tvr1/index.m3u8"]);
     }
@@ -240,7 +234,6 @@ http://radio.example/kiss
 #EXTINF:-1 tvg-id="DisneyChannel.ro@SD" http-referrer="https://cool-tv.net/" http-user-agent="Mozilla/5.0 (X11) VLC/3.0.18" group-title="Moldova",Disney Channel (Romania)
 https://x/disney.m3u8"#;
         let p = parse_m3u(iptv_org);
-        assert_eq!(p.epg_url.as_deref(), Some("https://g/guide.xml.gz"));
         let c = &p.channels[0];
         assert_eq!(c.name, "Disney Channel (Romania)");
         assert_eq!(c.http.referrer.as_deref(), Some("https://cool-tv.net/"));
@@ -248,7 +241,6 @@ https://x/disney.m3u8"#;
             c.http.user_agent.as_deref(),
             Some("Mozilla/5.0 (X11) VLC/3.0.18")
         );
-        assert_eq!(c.guide_id.as_deref(), Some("DisneyChannel.ro@SD"));
     }
 
     #[test]

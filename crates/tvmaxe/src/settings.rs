@@ -13,8 +13,6 @@ pub struct Settings {
     pub download_logos: bool,
     /// Play the last channel automatically when the application opens.
     pub autoplay_last: bool,
-    /// XMLTV sources added by the user, besides the ones declared by the lists.
-    pub extra_epg_urls: Vec<String>,
     /// Where recordings are written (`None` = the default, see [`Settings::recordings_dir`]).
     pub recordings_dir: Option<PathBuf>,
 }
@@ -26,7 +24,6 @@ impl Default for Settings {
             refresh_on_start: true,
             download_logos: true,
             autoplay_last: false,
-            extra_epg_urls: Vec::new(),
             recordings_dir: None,
         }
     }
@@ -69,10 +66,6 @@ impl Settings {
                 .setting("pref.download_logos")
                 .unwrap_or(d.download_logos),
             autoplay_last: db.setting("pref.autoplay_last").unwrap_or(d.autoplay_last),
-            extra_epg_urls: db
-                .setting::<String>("pref.epg_urls")
-                .map(|s| parse_url_lines(&s))
-                .unwrap_or_default(),
             recordings_dir: db
                 .setting::<String>("pref.recordings_dir")
                 .filter(|s| !s.trim().is_empty())
@@ -99,7 +92,6 @@ impl Settings {
         db.set_setting("pref.refresh_on_start", self.refresh_on_start)?;
         db.set_setting("pref.download_logos", self.download_logos)?;
         db.set_setting("pref.autoplay_last", self.autoplay_last)?;
-        db.set_setting("pref.epg_urls", self.extra_epg_urls.join("\n"))?;
         db.set_setting(
             "pref.recordings_dir",
             self.recordings_dir
@@ -115,17 +107,6 @@ pub fn default_recordings_dir() -> PathBuf {
     gtk::glib::user_special_dir(gtk::glib::UserDirectory::Videos)
         .unwrap_or_else(gtk::glib::home_dir)
         .join("TV-Maxe")
-}
-
-/// One address per line; empty lines and duplicates are ignored.
-pub fn parse_url_lines(text: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for l in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        if !out.iter().any(|u| u == l) {
-            out.push(l.to_string());
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -153,17 +134,10 @@ mod tests {
             refresh_on_start: false,
             download_logos: false,
             autoplay_last: true,
-            extra_epg_urls: vec!["https://epg/a.xml.gz".into(), "/home/u/b.xml".into()],
             recordings_dir: Some("/media/tv".into()),
         };
         s.save(&db).unwrap();
         assert_eq!(Settings::load(&db), s);
-    }
-
-    #[test]
-    fn url_lines() {
-        assert_eq!(parse_url_lines("  a \n\n b\na\n"), ["a", "b"]);
-        assert!(parse_url_lines("\n  \n").is_empty());
     }
 
     #[test]

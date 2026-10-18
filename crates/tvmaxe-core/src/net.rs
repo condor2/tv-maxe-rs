@@ -157,31 +157,6 @@ fn looks_like_image(d: &[u8]) -> bool {
         || d.starts_with(b"<?xml")
 }
 
-/// Limit of data transferred for an EPG, before decompression.
-const MAX_EPG_DOWNLOAD: u64 = 64 * 1024 * 1024;
-
-/// Downloads and stores an XMLTV guide (`.xml` or `.xml.gz`), keeping only
-/// the channels from the enabled lists and the programmes from yesterday to a week ahead.
-/// Returns how many programmes were stored.
-pub fn update_epg(db_path: &Path, url: &str) -> Result<usize> {
-    let mut db = Database::open(db_path)?;
-    let result: Result<crate::epg::Guide> = (|| {
-        let data = crate::epg::decompress(fetch(url, MAX_EPG_DOWNLOAD)?)?;
-        let wanted = db.epg_wanted()?;
-        let now = unix_now();
-        let guide =
-            crate::epg::parse_xmltv(&data, Some(&wanted), Some((now - 86400, now + 8 * 86400)))?;
-        Ok(guide)
-    })();
-    match result {
-        Ok(guide) => db.replace_epg(url, &guide, unix_now()),
-        Err(e) => {
-            db.set_epg_error(url, &e.to_string())?;
-            Err(e)
-        }
-    }
-}
-
 pub fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

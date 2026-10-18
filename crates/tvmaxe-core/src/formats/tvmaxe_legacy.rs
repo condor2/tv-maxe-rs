@@ -1,7 +1,7 @@
 //! The text format of the first TV-Maxe versions (the `subscriptions/` folder):
 //!
 //! ```text
-//! |tvchannels||newchannel|Name|-|url|-|logo|-|epg_id|newchannel|…|endoftvchannels|
+//! |tvchannels||newchannel|Name|-|url|-|logo|-|(old guide id, ignored)|newchannel|…|endoftvchannels|
 //! |radiochannels||newchannel|Name|-|url|-|logo|endofradiochannels|
 //! ```
 
@@ -30,7 +30,6 @@ pub fn parse_tvmaxe_legacy(data: &str) -> ChannelList {
                     name,
                     urls: vec![url],
                     group: None,
-                    guide_id: f.get(3).copied().and_then(non_empty),
                     logo: f
                         .get(2)
                         .copied()
@@ -55,7 +54,6 @@ mod tests {
         assert_eq!(l.channels.len(), 3);
         assert_eq!(l.channels[0].name, "DR 1");
         assert_eq!(l.channels[0].logo, Logo::Url("http://i/1.png".into()));
-        assert_eq!(l.channels[1].guide_id.as_deref(), Some("dr2"));
         assert_eq!(l.channels[2].kind, Kind::Radio);
         assert_eq!(l.channels[2].logo, Logo::None);
     }

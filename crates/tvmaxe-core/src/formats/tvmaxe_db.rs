@@ -93,7 +93,6 @@ fn read(conn: &Connection) -> Result<ChannelList> {
         let rows = rows_as_maps(conn, "SELECT * FROM info LIMIT 1")?;
         if let Some(info) = rows.first() {
             list.name = text(info, "name").and_then(|s| non_empty(&s));
-            list.epg_url = text(info, "epgurl").and_then(|s| non_empty(&s));
         }
     }
     for (kind, table) in [(Kind::Tv, "tv_channels"), (Kind::Radio, "radio_channels")] {
@@ -115,7 +114,6 @@ fn read(conn: &Connection) -> Result<ChannelList> {
                 name,
                 urls,
                 group: None,
-                guide_id: text(&row, "guide").and_then(|s| non_empty(&s)),
                 logo: decode_icon(row.iter().find(|(k, _)| k == "icon").map(|(_, v)| v)),
                 http: Default::default(),
             });
@@ -197,12 +195,11 @@ pub fn write_tvmaxe_db(path: &Path, list: &ChannelList) -> Result<()> {
          CREATE TABLE tv_channels (id text, icon blob, name text, streamurls text, params text, guide text, audiochannels text);
          CREATE TABLE radio_channels (id text, icon blob, name text, streamurls text, params text);",
     )?;
+    // `epgurl` and `guide` stay in the file because the original TV-Maxe
+    // expects those columns, but they are left empty.
     tx.execute(
-        "INSERT INTO info VALUES (?1, '1.0', '', '', ?2)",
-        params![
-            list.name.as_deref().unwrap_or("Local"),
-            list.epg_url.as_deref().unwrap_or("")
-        ],
+        "INSERT INTO info VALUES (?1, '1.0', '', '', '')",
+        params![list.name.as_deref().unwrap_or("Local")],
     )?;
     for (i, ch) in list.channels.iter().enumerate() {
         let icon = match &ch.logo {
@@ -213,14 +210,8 @@ pub fn write_tvmaxe_db(path: &Path, list: &ChannelList) -> Result<()> {
         let id = format!("ch{i}");
         match ch.kind {
             Kind::Tv => tx.execute(
-                "INSERT INTO tv_channels VALUES (?1, ?2, ?3, ?4, '{}', ?5, '[]')",
-                params![
-                    id,
-                    icon,
-                    ch.name,
-                    urls,
-                    ch.guide_id.as_deref().unwrap_or("")
-                ],
+                "INSERT INTO tv_channels VALUES (?1, ?2, ?3, ?4, '{}', '', '[]')",
+                params![id, icon, ch.name, urls],
             )?,
             Kind::Radio => tx.execute(
                 "INSERT INTO radio_channels VALUES (?1, ?2, ?3, ?4, '{}')",
@@ -283,14 +274,12 @@ mod tests {
         assert_eq!(detect(&data), Some(Format::TvMaxeDb));
         let l = parse(&data).unwrap();
         assert_eq!(l.name.as_deref(), Some("Romania"));
-        assert_eq!(l.epg_url.as_deref(), Some("http://epg/x.xml"));
         assert_eq!(l.channels.len(), 2);
 
         let tvr = &l.channels[0];
         assert_eq!(tvr.kind, Kind::Tv);
         assert_eq!(tvr.urls, vec!["http://a/1", "http://b/1"]);
         assert_eq!(tvr.logo, Logo::Embedded(PNG.to_vec()), "icon base64");
-        assert_eq!(tvr.guide_id.as_deref(), Some("tvr1"));
 
         let radio = &l.channels[1];
         assert_eq!(radio.kind, Kind::Radio);

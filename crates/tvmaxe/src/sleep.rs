@@ -98,16 +98,6 @@ pub fn format_remaining(d: Duration) -> String {
     }
 }
 
-/// Minutes until a programme ends, rounded up, within [`MINUTES`].
-pub fn minutes_until(now: i64, stop: i64) -> Option<u32> {
-    let secs = stop - now;
-    if secs <= 0 {
-        return None;
-    }
-    let m = u32::try_from((secs + 59) / 60).ok()?;
-    Some(m.clamp(MINUTES.0, MINUTES.1))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,14 +116,6 @@ mod tests {
         assert_eq!(format_remaining(Duration::from_millis(59_200)), "1:00");
         assert_eq!(format_remaining(Duration::ZERO), "0:00");
         assert_eq!(format_remaining(Duration::from_secs(3909)), "1:05:09");
-    }
-
-    #[test]
-    fn until_end_of_programme() {
-        assert_eq!(minutes_until(1000, 1000 + 61), Some(2));
-        assert_eq!(minutes_until(1000, 1000 + 60), Some(1));
-        assert_eq!(minutes_until(1000, 900), None);
-        assert_eq!(minutes_until(0, 100 * 3600), Some(MINUTES.1));
     }
 
     #[test]

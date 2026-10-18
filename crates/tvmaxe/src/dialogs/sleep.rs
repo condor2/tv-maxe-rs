@@ -48,25 +48,6 @@ pub fn sleep_timer(main: &Rc<MainWindow>) {
         b.connect_clicked(move |_| spin.set_value(f64::from(m)));
         presets.insert(&b, -1);
     }
-    // "End of the programme", when the guide knows the programme on air.
-    let end_of_programme = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    if let Some((title, stop)) = main.current_programme() {
-        let now = tvmaxe_core::net::unix_now();
-        if let Some(m) = sleep::minutes_until(now, stop) {
-            let b = gtk::Button::with_label(&fill(
-                tr("End of “%1” (%2)"),
-                &[&title, &crate::window::hhmm(stop)],
-            ));
-            b.add_css_class("flat");
-            if let Some(l) = b.child().and_downcast::<gtk::Label>() {
-                l.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                l.set_max_width_chars(36);
-            }
-            let spin = minutes.clone();
-            b.connect_clicked(move |_| spin.set_value(f64::from(m)));
-            end_of_programme.append(&b);
-        }
-    }
 
     let labels: Vec<&str> = SleepAction::ALL.iter().map(|a| a.label()).collect();
     let action = gtk::DropDown::from_strings(&labels);
@@ -96,9 +77,8 @@ pub fn sleep_timer(main: &Rc<MainWindow>) {
     grid.attach(&label(tr("After:")), 0, 0, 1, 1);
     grid.attach(&after, 1, 0, 1, 1);
     grid.attach(&presets, 1, 1, 1, 1);
-    grid.attach(&end_of_programme, 1, 2, 1, 1);
-    grid.attach(&label(tr("Then:")), 0, 3, 1, 1);
-    grid.attach(&action, 1, 3, 1, 1);
+    grid.attach(&label(tr("Then:")), 0, 2, 1, 1);
+    grid.attach(&action, 1, 2, 1, 1);
 
     let cancel_timer = gtk::Button::with_label(tr("Cancel timer"));
     cancel_timer.add_css_class("destructive-action");

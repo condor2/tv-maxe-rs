@@ -21,7 +21,6 @@ impl MainWindow {
             .iter()
             .map(|s| (s.id, s.display_name().to_string()))
             .collect();
-        let idx = self.epg_index.borrow();
         for list in [&self.tv, &self.radio] {
             list.set_subscriptions(&subs);
             let rows = db
@@ -30,17 +29,13 @@ impl MainWindow {
                 .into_iter()
                 .map(|c| {
                     let sub = names.get(&c.subscription_id).cloned().unwrap_or_default();
-                    let key = idx.resolve(c.guide_id.as_deref(), &c.name);
-                    ChannelRow::new(c, sub, key)
+                    ChannelRow::new(c, sub)
                 })
                 .collect();
             list.set_channels(rows);
         }
-        drop(idx);
         drop(db);
         self.apply_favourites();
-        let db = self.db.borrow();
-        let idx = self.epg_index.borrow();
         let active = subs
             .iter()
             .filter(|s| s.enabled && s.tv_count + s.radio_count > 0)
@@ -57,9 +52,6 @@ impl MainWindow {
                 &trn("%n list", "%n lists", active as u64),
             ],
         ));
-        drop(idx);
-        drop(db);
-        self.refresh_epg_view();
         if let Some(d) = self.subs_dialog.borrow().clone().filter(|d| d.is_visible()) {
             d.refresh();
         }
@@ -114,7 +106,6 @@ impl MainWindow {
             } else {
                 this.set_status(&fill(tr("Could not update: %1"), &[&failed.join("; ")]));
             }
-            this.refresh_epg(false);
         });
     }
 

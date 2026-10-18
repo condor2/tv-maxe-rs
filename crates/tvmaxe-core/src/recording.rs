@@ -84,7 +84,7 @@ impl Status {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Recording {
     pub id: i64,
-    /// Programme title or a name chosen by the user (may be empty).
+    /// A name chosen by the user (may be empty).
     pub title: String,
     pub channel: String,
     pub kind: Kind,

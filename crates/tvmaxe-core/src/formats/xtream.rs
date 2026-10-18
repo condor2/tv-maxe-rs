@@ -81,16 +81,6 @@ impl Account {
         url
     }
 
-    /// The programme guide of the panel (XMLTV).
-    pub fn epg_url(&self) -> String {
-        format!(
-            "{}/xmltv.php?username={}&password={}",
-            self.server,
-            pct_encode(&self.username),
-            pct_encode(&self.password)
-        )
-    }
-
     /// `host:port`, for naming the subscription (no secrets in it).
     pub fn host(&self) -> String {
         let rest = self.server.split_once("://").map_or(&*self.server, |s| s.1);
@@ -295,7 +285,6 @@ pub fn build_list(
             name,
             urls,
             group,
-            guide_id: s.get("epg_channel_id").and_then(text),
             logo: s
                 .get("stream_icon")
                 .and_then(text)
@@ -306,7 +295,6 @@ pub fn build_list(
     }
     ChannelList {
         name: Some(account.host()),
-        epg_url: Some(account.epg_url()),
         channels,
     }
 }
@@ -436,10 +424,6 @@ mod tests {
         ]);
         let list = build_list(&account(), &["ts", "m3u8"], &categories, &streams);
         assert_eq!(list.name.as_deref(), Some("iptv.example:8080"));
-        assert_eq!(
-            list.epg_url.as_deref(),
-            Some("http://iptv.example:8080/xmltv.php?username=ana&password=p%40ss%20word")
-        );
         assert_eq!(list.channels.len(), 3);
 
         let tv = &list.channels[0];
@@ -452,12 +436,10 @@ mod tests {
             ]
         );
         assert_eq!(tv.group.as_deref(), Some("Romania"));
-        assert_eq!(tv.guide_id.as_deref(), Some("protv.ro"));
         assert_eq!(tv.logo, Logo::Url("http://logo.example/protv.png".into()));
 
         let radio = &list.channels[1];
         assert_eq!(radio.kind, Kind::Radio);
-        assert_eq!(radio.guide_id, None);
         assert_eq!(radio.logo, Logo::None);
 
         assert_eq!(list.channels[2].urls, ["http://cdn.example/direct.m3u8"]);

@@ -39,8 +39,6 @@ pub struct Channel {
     /// URLs in order of preference; the next one is tried if the first fails.
     pub urls: Vec<String>,
     pub group: Option<String>,
-    /// EPG identifier (`tvg-id` in M3U, `guide` in TV-Maxe).
-    pub guide_id: Option<String>,
     pub logo: Logo,
     /// HTTP headers required by some servers (iptv-org declares them per channel).
     pub http: StreamOptions,
@@ -60,7 +58,6 @@ impl Channel {
             name: name.into(),
             urls: vec![url.into()],
             group: None,
-            guide_id: None,
             logo: Logo::None,
             http: StreamOptions::default(),
         }
@@ -72,6 +69,5 @@ impl Channel {
 pub struct ChannelList {
     /// The name declared in the list (`info.name` in TV-Maxe).
     pub name: Option<String>,
-    pub epg_url: Option<String>,
     pub channels: Vec<Channel>,
 }

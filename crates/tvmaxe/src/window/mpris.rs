@@ -41,10 +41,6 @@ impl MainWindow {
         };
         service.update(State {
             status,
-            programme: channel
-                .as_ref()
-                .and_then(|_| self.current_programme())
-                .map(|(title, _)| title),
             channel,
             volume: self.volume.value() / 100.0,
             can_navigate: self.current_list().visible_len() > 0,

@@ -5,7 +5,7 @@ use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use tvmaxe_core::i18n::{fill, tr};
+use tvmaxe_core::i18n::tr;
 use tvmaxe_core::{Kind, StoredChannel, Subscription};
 
 pub const LOGO_SIZE: i32 = 24;
@@ -14,22 +14,16 @@ pub const LOGO_SIZE: i32 = 24;
 pub struct ChannelRow {
     pub channel: StoredChannel,
     pub subscription: String,
-    /// The channel's id in the TV guide, if it was found.
-    pub epg_key: Option<String>,
-    /// Title of the programme on air (updated periodically).
-    pub now_title: RefCell<Option<String>>,
     /// Marked as a favourite (★).
     pub favourite: Cell<bool>,
     texture: RefCell<Option<gdk::Texture>>,
 }
 
 impl ChannelRow {
-    pub fn new(channel: StoredChannel, subscription: String, epg_key: Option<String>) -> Self {
+    pub fn new(channel: StoredChannel, subscription: String) -> Self {
         Self {
             channel,
             subscription,
-            epg_key,
-            now_title: RefCell::default(),
             favourite: Cell::new(false),
             texture: RefCell::default(),
         }
@@ -224,21 +218,6 @@ impl ChannelList {
                 .hexpand(true)
                 .ellipsize(gtk::pango::EllipsizeMode::End)
                 .build();
-            // Under the name: the current programme from the TV guide.
-            let now = gtk::Label::builder()
-                .xalign(0.0)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .visible(false)
-                .build();
-            now.add_css_class("dim-label");
-            now.add_css_class("caption");
-            let text = gtk::Box::builder()
-                .orientation(gtk::Orientation::Vertical)
-                .valign(gtk::Align::Center)
-                .hexpand(true)
-                .build();
-            text.append(&label);
-            text.append(&now);
             let row = gtk::Box::builder()
                 .spacing(8)
                 .margin_top(3)
@@ -246,7 +225,7 @@ impl ChannelList {
                 .margin_start(4)
                 .build();
             row.append(&image);
-            row.append(&text);
+            row.append(&label);
             let star = gtk::Image::from_icon_name("starred-symbolic");
             star.add_css_class("favourite-star");
             star.set_margin_end(6);
@@ -468,28 +447,6 @@ impl ChannelList {
         }
     }
 
-    /// Updates "now playing" on every row and redraws the list.
-    pub fn update_now(&self, title_for: impl Fn(&str) -> Option<String>) {
-        for i in 0..self.store.n_items() {
-            let obj = self.store.item(i).unwrap();
-            let row = row_of(&obj);
-            let title = row.epg_key.as_deref().and_then(&title_for);
-            *row.now_title.borrow_mut() = title;
-        }
-        // Only the visible rows; the model stays untouched (and so do selection and scrolling).
-        self.refresh_visible();
-    }
-
-    pub fn epg_key_for_url(&self, url: &str) -> Option<String> {
-        (0..self.store.n_items()).find_map(|i| {
-            let obj = self.store.item(i)?;
-            let row = row_of(&obj);
-            (row.channel.urls.first().map(String::as_str) == Some(url))
-                .then(|| row.epg_key.clone())
-                .flatten()
-        })
-    }
-
     /// The row at position `i` in the full (unfiltered) list.
     pub fn item(&self, i: u32) -> Option<glib::BoxedAnyObject> {
         self.store.item(i).and_downcast()
@@ -639,39 +596,25 @@ impl ChannelList {
     }
 }
 
-/// Fills a row's widgets from its data (used on bind and on the periodic
-/// guide update).
+/// Fills a row's widgets from its data.
 fn bind_row(item: &gtk::ListItem) {
     let Some(obj) = item.item() else { return };
     let row = row_of(&obj);
     let bx = item.child().and_downcast::<gtk::Box>().unwrap();
     let image = bx.first_child().and_downcast::<gtk::Image>().unwrap();
-    let text = image.next_sibling().and_downcast::<gtk::Box>().unwrap();
-    let label = text.first_child().and_downcast::<gtk::Label>().unwrap();
-    let now = label.next_sibling().and_downcast::<gtk::Label>().unwrap();
-    if let Some(star) = text.next_sibling() {
+    let label = image.next_sibling().and_downcast::<gtk::Label>().unwrap();
+    if let Some(star) = label.next_sibling() {
         star.set_visible(row.favourite.get());
     }
     label.set_label(&row.channel.name);
-    match row.now_title.borrow().as_deref() {
-        Some(t) => {
-            now.set_label(t);
-            now.set_visible(true);
-        }
-        None => now.set_visible(false),
-    }
     match row.texture() {
         Some(t) => image.set_paintable(Some(&t)),
         None => image.set_icon_name(Some(placeholder_icon(row.channel.kind))),
     }
-    let mut tip = match &row.channel.group {
+    let tip = match &row.channel.group {
         Some(g) => format!("{}\n{g} · {}", row.channel.name, row.subscription),
         None => format!("{}\n{}", row.channel.name, row.subscription),
     };
-    if let Some(t) = row.now_title.borrow().as_deref() {
-        tip.push('\n');
-        tip.push_str(&fill(tr("Now: %1"), &[&t]));
-    }
     bx.set_tooltip_text(Some(&tip));
 }
 

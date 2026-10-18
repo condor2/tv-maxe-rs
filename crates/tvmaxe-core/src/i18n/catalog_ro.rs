@@ -2,7 +2,6 @@
 //! The `translations` test checks that nothing is missing and nothing is left over.
 
 pub(super) const RO: &[(&str, &str)] = &[
-    ("%1  ·  now", "%1  ·  acum"),
     ("%1 channels", "%1 canale"),
     ("%1 in %2", "%1 în %2"),
     ("%1 min", "%1 min"),
@@ -100,10 +99,6 @@ pub(super) const RO: &[(&str, &str)] = &[
         "Choose a channel from the list (double-click)",
         "Alege un canal din listă (dublu-click)",
     ),
-    (
-        "Choose a channel from the list to see its schedule",
-        "Alege un canal din listă pentru a-i vedea programul",
-    ),
     ("Choose a channel list", "Alege o listă de canale"),
     (
         "Choose a channel to record",
@@ -124,10 +119,6 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("Done · %1 · %2", "Gata · %1 · %2"),
     ("Download channel logos", "Descarcă logo-urile canalelor"),
     ("download failed: %1", "descărcare eșuată: %1"),
-    (
-        "Downloading the TV guide (%1/%2)…",
-        "Se descarcă ghidul TV (%1/%2)…",
-    ),
     ("Duration: %1", "Durata: %1"),
     ("Dutch", "neerlandeză"),
     ("e.g. ro, en", "de ex. ro, en"),
@@ -139,7 +130,6 @@ pub(super) const RO: &[(&str, &str)] = &[
         "Empty = default. Some IPTV lists require a specific value.",
         "Gol = implicit. Unele liste IPTV cer o valoare anume.",
     ),
-    ("End of “%1” (%2)", "Sfârșitul „%1” (%2)"),
     ("End:", "Sfârșit:"),
     ("ends the next day", "se termină a doua zi"),
     ("English", "engleză"),
@@ -154,7 +144,6 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("Error: %1", "Eroare: %1"),
     ("Every day", "Zilnic"),
     ("Every week", "Săptămânal"),
-    ("Extra EPG sources", "Surse EPG suplimentare"),
     ("Failed: %1", "Eșuată: %1"),
     ("Fast (low-end computers)", "Rapidă (calculatoare slabe)"),
     ("Favourite", "Favorit"),
@@ -166,7 +155,6 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("German", "germană"),
     ("Greek", "greacă"),
     ("Group:", "Grup:"),
-    ("gzip archive: %1", "arhivă gzip: %1"),
     ("Hardware decoding", "Decodare hardware"),
     (
         "https://…/list.db  or  /path/list.m3u",
@@ -199,10 +187,8 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("my-channels.db", "canalele-mele.db"),
     ("Name:", "Nume:"),
     ("Network buffer", "Buffer de rețea"),
-    ("Next %1  %2", "Urmează %1  %2"),
     ("Next audio track", "Pista audio următoare"),
     ("Next channel", "Canalul următor"),
-    ("Next day", "Ziua următoare"),
     ("No channel %1", "Nu există canalul %1"),
     (
         "No favourites yet: right-click a channel → Add to favourites",
@@ -214,25 +200,16 @@ pub(super) const RO: &[(&str, &str)] = &[
         "Niciun post de radio.\n\nAdaugă o listă din\nTV-Maxe → Abonamente…",
     ),
     (
-        "No recordings yet.\n\nRecord the channel you are watching with the ● button, or schedule one from the TV guide or the channel menu (right-click).",
-        "Nicio înregistrare încă.\n\nÎnregistrează canalul urmărit cu butonul ● sau programează o înregistrare din Ghidul TV ori din meniul canalului (click dreapta).",
+        "No recordings yet.\n\nRecord the channel you are watching with the ● button, or schedule one from the channel menu (right-click).",
+        "Nicio înregistrare încă.\n\nÎnregistrează canalul urmărit cu butonul ● sau programează o înregistrare din meniul canalului (click dreapta).",
     ),
     ("No subscriptions yet.", "Niciun abonament încă."),
     (
         "No TV channels.\n\nAdd a list from\nTV-Maxe → Subscriptions…",
         "Niciun canal TV.\n\nAdaugă o listă din\nTV-Maxe → Abonamente…",
     ),
-    (
-        "not an XMLTV file (<tv> is missing)",
-        "nu e un fișier XMLTV (lipsește <tv>)",
-    ),
     ("Not updated yet", "Neactualizată încă"),
     ("Nothing was recorded", "Nu s-a înregistrat nimic"),
-    ("Now: %1", "Acum: %1"),
-    (
-        "Now: no programme in the guide",
-        "Acum: fără program în ghid",
-    ),
     ("Once", "O dată"),
     (
         "One URL per line, in order of preference",
@@ -261,7 +238,6 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("Preferences…", "Preferințe…"),
     ("Preferred audio languages", "Limbi audio preferate"),
     ("Previous channel", "Canalul precedent"),
-    ("Previous day", "Ziua anterioară"),
     ("Quit", "Ieșire"),
     ("Quit TV-Maxe", "Închide TV-Maxe"),
     (
@@ -274,7 +250,6 @@ pub(super) const RO: &[(&str, &str)] = &[
     ("Record (Ctrl+Shift+R)", "Înregistrează (Ctrl+Shift+R)"),
     ("Record current channel", "Înregistrează canalul curent"),
     ("Record now", "Înregistrează acum"),
-    ("Record this programme…", "Înregistrează emisiunea…"),
     ("Recording", "Înregistrare"),
     ("Recording failed: %1 (%2)", "Înregistrare eșuată: %1 (%2)"),
     ("Recording finished: %1", "Înregistrare terminată: %1"),
@@ -387,10 +362,6 @@ pub(super) const RO: &[(&str, &str)] = &[
         "The channel cannot be loaded (offline or wrong URL)",
         "Canalul nu poate fi încărcat (offline sau URL greșit)",
     ),
-    (
-        "The channel does not appear in the downloaded TV guide.",
-        "Canalul nu apare în ghidul TV descărcat.",
-    ),
     ("The channel has no URL", "Canalul nu are niciun URL"),
     (
         "The channel lists you are subscribed to. TV-Maxe (.db) and M3U lists are accepted, from the internet or from disk. Only add lists you have the right to use.",
@@ -407,10 +378,6 @@ pub(super) const RO: &[(&str, &str)] = &[
     (
         "The channels from this list will disappear from TV-Maxe.",
         "Canalele din această listă vor dispărea din TV-Maxe.",
-    ),
-    (
-        "the decompressed EPG exceeds the %1-byte limit",
-        "EPG-ul decomprimat depășește limita de %1 octeți",
     ),
     (
         "The first URL is the main one; the others are fallbacks, tried in order.",
@@ -435,10 +402,6 @@ pub(super) const RO: &[(&str, &str)] = &[
         "sursa depășește limita de %1 octeți",
     ),
     (
-        "the uncompressed EPG exceeds the %1-byte limit",
-        "EPG-ul necomprimat depășește limita de %1 octeți",
-    ),
-    (
         "The volume goes down during the last 30 seconds.",
         "Volumul scade în ultimele 30 de secunde.",
     ),
@@ -448,14 +411,6 @@ pub(super) const RO: &[(&str, &str)] = &[
     ),
     ("Then:", "Apoi:"),
     (
-        "There is no schedule for this day.",
-        "Nu există program pentru această zi.",
-    ),
-    (
-        "There is no TV guide source.\n\nM3U lists usually declare one themselves (url-tvg). You can add one in TV-Maxe → Preferences → TV guide.",
-        "Nu există nicio sursă de ghid TV.\n\nListele M3U o declară de obicei singure (url-tvg). Poți adăuga una în TV-Maxe → Preferințe → Ghid TV.",
-    ),
-    (
         "This system does not allow it (or logind is not running).",
         "Sistemul nu permite asta (sau logind nu rulează).",
     ),
@@ -464,15 +419,10 @@ pub(super) const RO: &[(&str, &str)] = &[
         "Ora aceasta a trecut deja.",
     ),
     ("Title:", "Titlu:"),
-    ("Today", "Azi"),
-    ("Tomorrow", "Mâine"),
     ("Track %1", "Pista %1"),
     ("Turkish", "turcă"),
     ("TV channel", "Canal TV"),
     ("TV channels", "Canale TV"),
-    ("TV guide", "Ghid TV"),
-    ("TV guide (Ctrl+G)", "Ghid TV (Ctrl+G)"),
-    ("TV guide unavailable: %1", "Ghid TV indisponibil: %1"),
     ("TV-Maxe cannot start", "TV-Maxe nu poate porni"),
     (
         "TV-Maxe must be running for scheduled recordings to start.",
@@ -487,7 +437,6 @@ pub(super) const RO: &[(&str, &str)] = &[
     ),
     ("Unknown stream format", "Format de stream necunoscut"),
     ("Update all", "Actualizează toate"),
-    ("Update guide", "Actualizează ghidul"),
     ("Update list", "Actualizează lista"),
     ("Update lists", "Actualizează listele"),
     (
@@ -510,14 +459,9 @@ pub(super) const RO: &[(&str, &str)] = &[
         "wrong user name or password",
         "nume de utilizator sau parolă greșite",
     ),
-    (
-        "XMLTV addresses (.xml or .xml.gz), one per line. M3U lists usually declare their own guide (url-tvg), so this is only needed for extra sources.",
-        "Adrese XMLTV (.xml sau .xml.gz), câte una pe linie. Listele M3U își declară de obicei singure ghidul (url-tvg), deci aici e nevoie doar pentru surse în plus.",
-    ),
     ("Xtream Codes account", "Cont Xtream Codes"),
     ("Xtream Codes account…", "Cont Xtream Codes…"),
     ("Xtream Codes…", "Xtream Codes…"),
-    ("Yesterday", "Ieri"),
     (
         "“%1” was added to the favourites",
         "„%1” a fost adăugat la favorite",
